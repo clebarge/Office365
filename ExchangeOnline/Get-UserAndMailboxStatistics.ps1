@@ -8,7 +8,9 @@ No parameters are defined for this script.
 This script does not include the commands to connect to Office 365, you'll first need to connect to MSOnline and Exchange Online.
 The module MSOnline needs to be installed and loaded, and you will need to connect to the EXO remote powershell.
 To install: install-module MSOnline
-test
+
+Version: 2.0.beta.9182018
+Author: Clark B. Lebarge
 
 #>
 
