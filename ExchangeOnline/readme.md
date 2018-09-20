@@ -15,10 +15,15 @@ Get-UserAndMailboxStatistics
     [-Path] <string>
 
 UserPrincipalName: Gets stats for a specific user only.
+
 MSOLGroup: Gets stats for members of a specific group in Office 365, only checks users that are members, doesn't drill down into nested groups.
+
 All: Gets stats for all users.
+
 NoAD: Skips retrieving information from Active Directory. AD requires you run the command from within the internal network.
+
 CSPCustomerDomain: For cloud service providers, allows you to query this information for a specific customer by specifying their domain.
+
 Path: The output location for the report, if ommitted this is defaulted to the current directory with an automatic file name including the date.
 
 Example: Get all information for your Exchange Online implementation, creating the report file automatically in the current folder.
