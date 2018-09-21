@@ -16,7 +16,7 @@ Get-UserAndMailboxStatistics
     [-CSPCustomerDomain] <string>
     [-Path] <string>
 
-Version: 2.0.beta.9182018
+Version: 2.0.beta.9212018
 Author: Clark B. Lebarge
 
 #>
@@ -92,40 +92,53 @@ IF($CSPCustomerDomain)
     
     IF($All)
     {
-    $MSOLUsers = Get-MsolUser -All -TenantId $TenantId
+    $MSOLUsers = Get-MsolUser -All -TenantId $TenantId | Select BlockCredential,Licenses,UserPrincipalName
     }
 
     IF($UserPrincipalName)
     {
-    $MSOLUsers = Get-MsolUser -UserPrincipalName $UserPrincipalName -TenantId $TenantId
+    $MSOLUsers = Get-MsolUser -UserPrincipalName $UserPrincipalName -TenantId $TenantId | Select BlockCredential,Licenses,UserPrincipalName
     }
 
     IF($MSOLGroup)
     {
-    $MSOLGroupID = (Get-MsolGroup -TenantId $TenantId -All | where {$_.DisplayName -like "*$MSOLGroup*"}).ObjectId
-    $MSOLUsers= Get-MsolGroupMember -GroupObjectId $MSOLGroupID | foreach {Get-MsolUser -UserPrincipalName $_.EmailAddress}
+    $MSOLGroupID = (Get-MsolGroup -TenantId $TenantId -SearchString "$MSOLGroup" | select ObjectID).ObjectID
+    $MSOLUsers= Get-MsolGroupMember -TenantId $TenantId -GroupObjectId $MSOLGroupID | foreach {Get-MsolUser -TenantId $TenantId -UserPrincipalName $_.EmailAddress | Select BlockCredential,Licenses,UserPrincipalName}
     }
 }
 ELSE
 {
+    #Logon to Exchange Online
+        $modules = @(Get-ChildItem -Path "$($env:LOCALAPPDATA)\Apps\2.0" -Filter "Microsoft.Exchange.Management.ExoPowershellModule.manifest" -Recurse )
+        $moduleName =  Join-Path $modules[0].Directory.FullName "Microsoft.Exchange.Management.ExoPowershellModule.dll"
+        Import-Module -FullyQualifiedName $moduleName -Force
+        $scriptName =  Join-Path $modules[0].Directory.FullName "CreateExoPSSession.ps1"
+        . $scriptName
+        $null = Connect-EXOPSSession
+        $Session = (Get-PSSession | Where-Object { ($_.ConfigurationName -eq 'Microsoft.Exchange') -and ($_.State -eq 'Opened') })[0]
+
     IF($All)
     {
-    $MSOLUsers = Get-MsolUser -All
+    $MSOLUsers = Get-MsolUser -All | Select BlockCredential,Licenses,UserPrincipalName
     }
 
     IF($UserPrincipalName)
     {
-    $MSOLUsers = Get-MsolUser -UserPrincipalName $UserPrincipalName
+    $MSOLUsers = Get-MsolUser -UserPrincipalName $UserPrincipalName | Select BlockCredential,Licenses,UserPrincipalName
     }
 
     IF($MSOLGroup)
     {
-    $MSOLGroupID = (Get-MsolGroup -All| where {$_.DisplayName -like "*$MSOLGroup*"}).ObjectId
-    $MSOLUsers= Get-MsolGroupMember -GroupObjectId $MSOLGroupID | foreach {Get-MsolUser -UserPrincipalName $_.EmailAddress}
+    $MSOLGroupID = (Get-MsolGroup -SearchString "$MSOLGroup" | select ObjectID).ObjectID
+    $MSOLUsers= Get-MsolGroupMember -GroupObjectId $MSOLGroupID | foreach {Get-MsolUser -UserPrincipalName $_.EmailAddress | Select BlockCredential,Licenses,UserPrincipalName}
     }
 }
 
 #Queries
+
+#Get the list of mailboxes for the domain, we'll use this to compare to the MSOL list and only query for statistics on existing mailboxes. This should speed up the process.
+$Mailboxes = Invoke-Command -session $Session -scriptblock {Get-Mailbox -ResultSize Unlimited | Select-Object EmailAddresses}
+
 
 foreach($user in $MSOLUsers)
 {
@@ -151,13 +164,25 @@ foreach($user in $MSOLUsers)
     }
     
 
-    #Get the statistics for the mailbox
-    #$MBX = 
+    #Get the statistics for the mailbox.
+
+    Foreach($EmailAddress in $Mailboxes)
+    {
     $UPN = $user.userprincipalname
-    $command = "Get-MailboxStatistics $UPN"
-    $ScriptBlock = [scriptblock]::Create($command)
-    $MBX = Invoke-Command -Session $Session -ScriptBlock $scriptblock
-    
+    IF($EmailAddress.EmailAddresses -match $UPN)
+    {
+        $command = "Get-MailboxStatistics $UPN | Select-Object LastLogonTime,LastLogoffTime,TotalItemSize"
+        $ScriptBlock = [scriptblock]::Create($command)
+        $MBX = Invoke-Command -Session $Session -ScriptBlock $scriptblock
+        
+        #Breaking out of the loop now that we found a match.
+        Break
+    }
+    ELSE
+    {
+    $MBX = $null
+    }
+    }
 
     #Get Active Directory statistics for the user. Enabled by default.
     IF(-Not $NoAD)
@@ -188,151 +213,3 @@ foreach($user in $MSOLUsers)
 }
 
 Remove-PSSession $Session
-
-<#
-get-msoluser -all | ForEach-Object {
-
-    $user = $_
-    
-    IF($user.Licenses.accountskuid -like "*ENTERPRISEPACK*"){
-                    IF($user.BlockCredential -eq $false)
-                    {
-                    $LoginStatus = "Enabled"
-                    }
-                    ELSE
-                    {
-                    $LoginStatus = "Disabled"
-                    }
-                    $LIC = "Office 365 Enterprise E3"
-                    $MBX = Get-MailboxStatistics $user.UserPrincipalName
-                    $Details = Get-ADUser -filter {(UserPrincipalName -eq $User.UserPrincipalName)} -Properties Mail,samAccountName,DisplayName,Division,LastLogonDate | select Mail,samAccountName,DisplayName,Division,LastLogonDate
-                    New-Object -TypeName PSObject -Property @{
-                        LoginStatus = $LoginStatus
-                        UserPrincipalName = $user.UserPrincipalName
-                        LastMailboxLoginTime = $MBX.LastLogonTime
-                        LastMailboxLogoffTime = $MBX.LastLogoffTime
-                        MailboxSize = $MBX.TotalItemSize
-                        UserName = $Details.samAccountName
-                        DisplayName = $Details.DisplayName
-                        Division = $Details.Division
-                        Email = $Details.Mail
-                        License = $LIC
-                        LastWindowsLoginTime = $Details.LastLogonDate
-                        }
-                }
-    ELSE{
-        IF($user.Licenses.accountskuid -like "*STANDARDPACK*"){
-                        IF($user.BlockCredential -eq $false)
-                        {
-                        $LoginStatus = "Enabled"
-                        }
-                        ELSE
-                        {
-                        $LoginStatus = "Disabled"
-                        }
-                        $LIC = "Office 365 Enterprise E1"
-                        $MBX = Get-MailboxStatistics $user.UserPrincipalName
-                        $Details = Get-ADUser -filter {(UserPrincipalName -eq $User.UserPrincipalName)} -Properties Mail,samAccountName,UserPrincipalName,DisplayName,Division,LastLogonDate | select Mail,samAccountName,userprincipalname,DisplayName,Division,LastLogonDate
-                         New-Object -TypeName PSObject -Property @{
-                            LoginStatus = $LoginStatus
-                            UserPrincipalName = $user.UserPrincipalName
-                            LastMailboxLoginTime = $MBX.LastLogonTime
-                            LastMailboxLogoffTime = $MBX.LastLogoffTime
-                            MailboxSize = $MBX.TotalItemSize
-                            UserName = $Details.samAccountName
-                            DisplayName = $Details.DisplayName
-                            Division = $Details.Division
-                            Email = $Details.Mail
-                            License = $LIC
-                            LastWindowsLoginTime = $Details.LastLogonDate
-                            }
-                    }
-        ELSE{
-            IF($user.Licenses.accountskuid -like "*DESKLESSPACK*"){
-                            IF($user.BlockCredential -eq $false)
-                            {
-                            $LoginStatus = "Enabled"
-                            }
-                            ELSE
-                            {
-                            $LoginStatus = "Disabled"
-                            }
-                            $LIC = "Office 365 Enterprise K1"
-                            $MBX = Get-MailboxStatistics $user.UserPrincipalName
-                            $Details = Get-ADUser -filter {(UserPrincipalName -eq $User.UserPrincipalName)} -Properties Mail,samAccountName,UserPrincipalName,DisplayName,Division,LastLogonDate | select Mail,samAccountName,userprincipalname,DisplayName,Division,LastLogonDate
-                            New-Object -TypeName PSObject -Property @{
-                                LoginStatus = $LoginStatus
-                                UserPrincipalName = $user.UserPrincipalName
-                                LastMailboxLoginTime = $MBX.LastLogonTime
-                                LastMailboxLogoffTime = $MBX.LastLogoffTime
-                                MailboxSize = $MBX.TotalItemSize
-                                UserName = $Details.samAccountName
-                                DisplayName = $Details.DisplayName
-                                Division = $Details.Division
-                                Email = $Details.Mail
-                                License = $LIC
-                                LastWindowsLoginTime = $Details.LastLogonDate
-                                }
-                        }
-            ELSE{
-                    IF($user.Licenses.accountskuid -like "*ENTERPRISEPREMIUM*"){
-                                    IF($user.BlockCredential -eq $false)
-                                    {
-                                    $LoginStatus = "Enabled"
-                                    }
-                                    ELSE
-                                    {
-                                    $LoginStatus = "Disabled"
-                                    }
-                                    $LIC = "Office 365 Enterprise E5"
-                                    $MBX = Get-MailboxStatistics $user.UserPrincipalName
-                                    $Details = Get-ADUser -filter {(UserPrincipalName -eq $User.UserPrincipalName)} -Properties Mail,samAccountName,UserPrincipalName,DisplayName,Division,LastLogonDate | select Mail,samAccountName,userprincipalname,DisplayName,Division,LastLogonDate
-                                    New-Object -TypeName PSObject -Property @{
-                                        LoginStatus = $LoginStatus
-                                        UserPrincipalName = $user.UserPrincipalName
-                                        LastMailboxLoginTime = $MBX.LastLogonTime
-                                        LastMailboxLogoffTime = $MBX.LastLogoffTime
-                                        MailboxSize = $MBX.TotalItemSize
-                                        UserName = $Details.samAccountName
-                                        DisplayName = $Details.DisplayName
-                                        Division = $Details.Division
-                                        Email = $Details.Mail
-                                        License = $LIC
-                                        LastWindowsLoginTime = $Details.LastLogonDate
-                                        }
-                                }
-                    ELSE{
-                        IF($user.Licenses.accountskuid -like "*EXCHANGEENTERPRISE*"){
-                                        IF($user.BlockCredential -eq $false)
-                                        {
-                                        $LoginStatus = "Enabled"
-                                        }
-                                        ELSE
-                                        {
-                                        $LoginStatus = "Disabled"
-                                        }
-                                        $LIC = "Exchange Online (Plan 2)"
-                                        $MBX = Get-MailboxStatistics $user.UserPrincipalName
-                                        $Details = Get-ADUser -filter {(UserPrincipalName -eq $User.UserPrincipalName)} -Properties Mail,samAccountName,UserPrincipalName,DisplayName,Division,LastLogonDate | select Mail,samAccountName,userprincipalname,DisplayName,Division,LastLogonDate
-                                        New-Object -TypeName PSObject -Property @{
-                                            LoginStatus = $LoginStatus
-                                            UserPrincipalName = $user.UserPrincipalName
-                                            LastMailboxLoginTime = $MBX.LastLogonTime
-                                            LastMailboxLogoffTime = $MBX.LastLogoffTime
-                                            MailboxSize = $MBX.TotalItemSize
-                                            UserName = $Details.samAccountName
-                                            DisplayName = $Details.DisplayName
-                                            Division = $Details.Division
-                                            Email = $Details.Mail
-                                            License = $LIC
-                                            LastWindowsLoginTime = $Details.LastLogonDate
-                                            }
-                                    }
-                }
-                }
-                        
-        }
-
-    }
-} | Export-CSV -NoTypeInformation -Path "$CurrentPath\Office365Licensing$Datefield.csv"
-#>
