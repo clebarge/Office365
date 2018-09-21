@@ -4,19 +4,21 @@ The script only reports on licensing applicable to Exchange Online usage, which 
 While possible, you wouldn't really see a person assigned an E3, have EXO disabled and then assigned a Exchange P2.
 So this is a good bet to be the primary/only license assigned to the user.
 
-This script does not include the commands to connect to Office 365, you'll first need to connect to MSOnline and Exchange Online.
-The module MSOnline needs to be installed and loaded, and you will need to connect to the EXO remote powershell.
-To install: install-module MSOnline
+This script requires the MSOnline module to be installed as well as the Exchange Online remote powershell.
+
+For CSP use, currently the script doesn't work with MFA authentication.
 
 Get-UserAndMailboxStatistics
     [-UserPrincipalName] <string>
     [-MSOLGroup] <string>
     [-All] <switch>
-    [-NoAD] <switch>
+    [-IncludeAD] <switch>
+    [-LicenseOnly] <switch>
+    [-DisabledOnly] <switch>
     [-CSPCustomerDomain] <string>
     [-Path] <string>
 
-Version: 2.0.beta.9212018
+Version: 2.1.9212018
 Author: Clark B. Lebarge
 
 #>
@@ -25,10 +27,37 @@ param(
 [parameter(ParameterSetName="UPN",Mandatory=$true,HelpMessage="Get Statistics for a specific user.")][string]$UserPrincipalName,
 [parameter(ParameterSetName="MSOLGroup",Mandatory=$true,HelpMessage="Get statistics for a specific group of users.")][string]$MSOLGroup,
 [parameter(ParameterSetName="All",Mandatory=$true,HelpMessage="Get statistics for all users.")][switch]$All,
-[parameter(Mandatory=$false,HelpMessage="Do not gather AD information.")][switch]$NoAD,
+[parameter(Mandatory=$false,HelpMessage="Gather AD information. Use only if you're internal to the network.")][switch]$IncludeAD,
+[parameter(Mandatory=$false,HelpMessage="Skip mailbox statistics, gather license and account status only. For a faster report.")][switch]$LicenseOnly,
+[parameter(ParameterSetName="MSOLGroup",Mandatory=$false,HelpMessage="Report on disabled users only. For a faster report.")]
+[parameter(ParameterSetName="All",Mandatory=$false,HelpMessage="Report on disabled users only. For a faster report.")]
+[switch]$DisabledOnly,
 [parameter(Mandatory=$false,HelpMessage="The customer domain name, required for Cloud Service Partners.")][string]$CSPCustomerDomain,
 [parameter(Mandatory=$false,HelpMessage="The name and path for the output CSV file.")][string]$Path
 )
+
+Function Logon-CSPEXO
+{
+    #Login to the customer's Exchange Online endpoint.
+    $Script:Session = New-PSSession `
+        -ConfigurationName Microsoft.Exchange `
+        -ConnectionUri "https://ps.outlook.com/powershell-liveid?DelegatedOrg=$CSPCustomerDomain" `
+        -Credential $Credentials `
+        -Authentication Basic `
+        -AllowRedirection
+}
+
+Function Logon-EXO
+{
+    #Logon to Exchange Online
+        $modules = @(Get-ChildItem -Path "$($env:LOCALAPPDATA)\Apps\2.0" -Filter "Microsoft.Exchange.Management.ExoPowershellModule.manifest" -Recurse )
+        $moduleName =  Join-Path $modules[0].Directory.FullName "Microsoft.Exchange.Management.ExoPowershellModule.dll"
+        Import-Module -FullyQualifiedName $moduleName -Force
+        $scriptName =  Join-Path $modules[0].Directory.FullName "CreateExoPSSession.ps1"
+        . $scriptName
+        $null = Connect-EXOPSSession
+        $Script:Session = (Get-PSSession | Where-Object { ($_.ConfigurationName -eq 'Microsoft.Exchange') -and ($_.State -eq 'Opened') })[0]
+}
 
 #Current Path
 $CurrentPath=Split-Path $script:MyInvocation.MyCommand.Path
@@ -71,28 +100,33 @@ $Plans = @{}
     $Plans.Add("EXCHANGEARCHIVE_ADDON","Exchange Archive for Exchange Online")
 
 #Get and save credentials and connect to MSOL.
-$Credentials = Get-Credential -Message "Please provide login credentials for Office 365 and Exchange Online."
-Connect-MsolService -Credential $Credentials
 
-#Compile list of all Office 365 users.
 IF($CSPCustomerDomain)
 {
-    #Login to the customer's Exchange Online endpoint.
-    $Session = New-PSSession `
-        -ConfigurationName Microsoft.Exchange `
-        -ConnectionUri "https://ps.outlook.com/powershell-liveid?DelegatedOrg=$CSPCustomerDomain" `
-        -Credential $Credentials `
-        -Authentication Basic `
-        -AllowRedirection
+$Credentials = Get-Credential -Message "Please provide CSP login credentials for Office 365 and Exchange Online."
+Connect-MsolService -Credential $Credentials
+}
+ELSE
+{
+Connect-MSOLService
+}
 
-   
-
+#Compile list of Office 365 users.
+IF($CSPCustomerDomain)
+{
     #Get the Tenant ID
     $TenantId = (Get-MsolPartnerContract -DomainName $CSPCustomerDomain).TenantId
     
     IF($All)
     {
-    $MSOLUsers = Get-MsolUser -All -TenantId $TenantId | Select BlockCredential,Licenses,UserPrincipalName
+        IF($DisabledOnly)
+        {
+        $MSOLUsers = Get-MsolUser -EnabledFilter DisabledOnly -All -TenantId $TenantId | Select BlockCredential,Licenses,UserPrincipalName
+        }
+        ELSE
+        {
+        $MSOLUsers = Get-MsolUser -EnabledFilter All -All -TenantId $TenantId | Select BlockCredential,Licenses,UserPrincipalName
+        }
     }
 
     IF($UserPrincipalName)
@@ -103,23 +137,31 @@ IF($CSPCustomerDomain)
     IF($MSOLGroup)
     {
     $MSOLGroupID = (Get-MsolGroup -TenantId $TenantId -SearchString "$MSOLGroup" | select ObjectID).ObjectID
-    $MSOLUsers= Get-MsolGroupMember -TenantId $TenantId -GroupObjectId $MSOLGroupID | foreach {Get-MsolUser -TenantId $TenantId -UserPrincipalName $_.EmailAddress | Select BlockCredential,Licenses,UserPrincipalName}
+    $MSOLUsers= Get-MsolGroupMember -TenantId $TenantId -GroupObjectId $MSOLGroupID | foreach 
+            {
+                IF($DisabledOnly)
+                {
+                Get-MsolUser -EnabledFilter DisabledOnly -TenantId $TenantId -UserPrincipalName $_.EmailAddress | Select BlockCredential,Licenses,UserPrincipalName
+                }
+                ELSE
+                {
+                Get-MsolUser -EnabledFilter All -TenantId $TenantId -UserPrincipalName $_.EmailAddress | Select BlockCredential,Licenses,UserPrincipalName
+                }
+            }
     }
 }
 ELSE
 {
-    #Logon to Exchange Online
-        $modules = @(Get-ChildItem -Path "$($env:LOCALAPPDATA)\Apps\2.0" -Filter "Microsoft.Exchange.Management.ExoPowershellModule.manifest" -Recurse )
-        $moduleName =  Join-Path $modules[0].Directory.FullName "Microsoft.Exchange.Management.ExoPowershellModule.dll"
-        Import-Module -FullyQualifiedName $moduleName -Force
-        $scriptName =  Join-Path $modules[0].Directory.FullName "CreateExoPSSession.ps1"
-        . $scriptName
-        $null = Connect-EXOPSSession
-        $Session = (Get-PSSession | Where-Object { ($_.ConfigurationName -eq 'Microsoft.Exchange') -and ($_.State -eq 'Opened') })[0]
-
     IF($All)
     {
-    $MSOLUsers = Get-MsolUser -All | Select BlockCredential,Licenses,UserPrincipalName
+        IF($DisabledOnly)
+        {
+        $MSOLUsers = Get-MsolUser -EnabledFilter DisabledOnly -All | Select BlockCredential,Licenses,UserPrincipalName
+        }
+        ELSE
+        {
+        $MSOLUsers = Get-MsolUser -EnabledFilter All -All | Select BlockCredential,Licenses,UserPrincipalName
+        }
     }
 
     IF($UserPrincipalName)
@@ -130,18 +172,66 @@ ELSE
     IF($MSOLGroup)
     {
     $MSOLGroupID = (Get-MsolGroup -SearchString "$MSOLGroup" | select ObjectID).ObjectID
-    $MSOLUsers= Get-MsolGroupMember -GroupObjectId $MSOLGroupID | foreach {Get-MsolUser -UserPrincipalName $_.EmailAddress | Select BlockCredential,Licenses,UserPrincipalName}
+    $MSOLUsers= Get-MsolGroupMember -GroupObjectId $MSOLGroupID | foreach 
+            {
+                IF($DisabledOnly)
+                {
+                Get-MsolUser -EnabledFilter DisabledOnly -UserPrincipalName $_.EmailAddress | Select BlockCredential,Licenses,UserPrincipalName
+                }
+                ELSE
+                {
+                Get-MsolUser -EnabledFilter All -UserPrincipalName $_.EmailAddress | Select BlockCredential,Licenses,UserPrincipalName
+                }
+            }
     }
 }
 
+#Initial Connection to Exchange Online.
+
+IF($CSPCustomerDomain)
+{
+Logon-CSPEXO
+
+}
+ELSE
+{
+Logon-EXO
+}
+
+#Due to the Session time out of 1 hour, Setting a time now when the script will reconnect to Exchange Online to renew the session.
+$SessionTime = (get-date).AddMinutes(55)
+
 #Queries
-
+    
 #Get the list of mailboxes for the domain, we'll use this to compare to the MSOL list and only query for statistics on existing mailboxes. This should speed up the process.
-$Mailboxes = Invoke-Command -session $Session -scriptblock {Get-Mailbox -ResultSize Unlimited | Select-Object EmailAddresses}
+IF($LicenseOnly -eq $false)
+{
+$Mailboxes = Invoke-Command -Session $Session -ScriptBlock {Get-Mailbox -ResultSize Unlimited | Select-Object EmailAddresses}
 
+
+}
 
 foreach($user in $MSOLUsers)
 {
+    #For large environments with over 2000 mailboxes, the script will need to refresh the Session.
+    IF((Get-Date) -ge $SessionTime)
+    {
+    
+        Remove-PSSession $Session
+        
+        IF($CSPCustomerDomain)
+        {
+        Logon-CSPEXO
+        }
+        ELSE
+        {
+        Logon-EXO
+        }
+
+        #Due to the Session time out of 1 hour, Setting a time now when the script will reconnect to Exchange Online to renew the session.
+        $SessionTime = (get-date).AddMinutes(55)
+    }
+    
     #Set Login Status from Office 365.
     IF($user.BlockCredential -eq $false)
     {
@@ -165,27 +255,29 @@ foreach($user in $MSOLUsers)
     
 
     #Get the statistics for the mailbox.
-
-    Foreach($EmailAddress in $Mailboxes)
+    IF($LicenseOnly -eq $false)
     {
-    $UPN = $user.userprincipalname
-    IF($EmailAddress.EmailAddresses -match $UPN)
-    {
-        $command = "Get-MailboxStatistics $UPN | Select-Object LastLogonTime,LastLogoffTime,TotalItemSize"
-        $ScriptBlock = [scriptblock]::Create($command)
-        $MBX = Invoke-Command -Session $Session -ScriptBlock $scriptblock
+        Foreach($EmailAddress in $Mailboxes)
+        {
+        $UPN = $user.userprincipalname
+        IF($EmailAddress.EmailAddresses -match $UPN)
+        {
+            $command = "Get-MailboxStatistics $UPN | Select-Object LastLogonTime,LastLogoffTime,TotalItemSize"
+            $ScriptBlock = [scriptblock]::Create($command)
+            $MBX = Invoke-Command -Session $Session -ScriptBlock $scriptblock
         
-        #Breaking out of the loop now that we found a match.
-        Break
-    }
-    ELSE
-    {
-    $MBX = $null
-    }
+            #Breaking out of the loop now that we found a match.
+            Break
+        }
+        ELSE
+        {
+        $MBX = $null
+        }
+        }
     }
 
     #Get Active Directory statistics for the user. Enabled by default.
-    IF(-Not $NoAD)
+    IF($IncludeAD)
     {
     $Details = Get-ADUser -filter {(UserPrincipalName -eq $User.UserPrincipalName)} -Properties Mail,samAccountName,DisplayName,Department,LastLogonDate | select Mail,samAccountName,DisplayName,Department,LastLogonDate
     }
@@ -212,4 +304,12 @@ foreach($user in $MSOLUsers)
     $NewLine | Export-Csv -NoTypeInformation -Path $Path -Append
 }
 
+IF($LicenseOnly -eq $false)
+{
 Remove-PSSession $Session
+write-host "Work Complete."
+}
+ELSE
+{
+write-host "Job's done, Boss."
+}
