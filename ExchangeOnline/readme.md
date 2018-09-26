@@ -10,7 +10,9 @@ Get-UserAndMailboxStatistics
     [-UserPrincipalName] <string>
     [-MSOLGroup] <string>
     [-All] <switch>
-    [-NoAD] <switch>
+    [-IncludeAD] <switch>
+    [-LicenseOnly] <switch>
+    [-DisabledOnly] <switch>
     [-CSPCustomerDomain] <string>
     [-Path] <string>
 
@@ -20,7 +22,11 @@ MSOLGroup: Gets stats for members of a specific group in Office 365, only checks
 
 All: Gets stats for all users.
 
-NoAD: Skips retrieving information from Active Directory. AD requires you run the command from within the internal network.
+IncludeAD: Gets information from Active Directory. AD requires you run the command from within the internal network.
+
+LicenseOnly: Skips the exhaustive mailbox statistics, reducing run time to minutes instead of hours for large organizations.
+
+DisabledOnly: Skips checking enabled users, speeds up the run time. Combine with LicenseOnly for a fast and quick license evaluation of your Office 365 environment. This is only really accurate for tenants with Exchange Online. Doesn't check for Skype or other licensing.
 
 CSPCustomerDomain: For cloud service providers, allows you to query this information for a specific customer by specifying their domain.
 
