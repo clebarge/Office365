@@ -18,7 +18,7 @@ Get-UserAndMailboxStatistics
     [-CSPCustomerDomain] <string>
     [-Path] <string>
 
-Version: 2.1.9212018
+Version: 2.1.9262018
 Author: Clark B. Lebarge
 
 #>
@@ -67,8 +67,39 @@ $Datefield = Get-Date -Format {MMddyyyy}
 #Hashtable of all possible plans which include an Exchange Online mailbox license.
 #May need occasional updating.
 $Plans = $null
-$Plans = @{}
-    #Enterprise Plans
+$Plans = @{
+#Enterprise Plans
+'STANDARDPACK'                       =    'Office 365 Enterprise E1'
+'ENTERPRISEPACK'                     =    'Office 365 Enterprise E3'
+'ENTERPRISEPACKWITHSCAL'             =    'Office 365 Enterprise E4'
+'ENTERPRISEPREMIUM'                  =    'Office 365 Enterprise E5'
+'ENTERPRISEPREMIUM_NOPSTNCONF'       =    'Office 365 Enterprise E5 without PSTN Conferencing'
+#Frontline Worker (Kiosk)
+'DESKLESSPACK'                       =    'Office 365 F1'
+#Microsoft 365
+'SPE_F1'                             =    'Microsoft 365 F1'
+'SPE_E3'                             =    'Microsoft 365 E3'
+'SPE_E5'                             =    'Microsoft 365 E5'
+#Small and Medium Business
+'O365_BUSINESS_PREMIUM'              =    'Office 365 Business Premium'
+'O365_BUSINESS_ESSENTIALS'           =    'Office 365 Business Essentials'
+#Education Plans
+'STANDARDWOFFPACK_FACULTY'           =    'Office 365 A1 for Faculty'
+'STANDARDWOFFPACK_STUDENT'           =    'Office 365 A1 for Students'
+'STANDARDWOFFPACK_IW_FACULTY'        =    'Office 365 A1 Plus for Faculty'
+'STANDARDWOFFPACK_IW_STUDENT'        =    'Office 365 A1 Plus for Students'
+'ENTERPRISEPACK_FACULTY'             =    'Office 365 A3 for Faculty'
+'ENTERPRISEPACK_STUDENT'             =    'Office 365 A3 for Students'
+'ENTERPRISEPREMIUM_FACULTY'          =    'Office 365 A5 for Faculty'
+'ENTERPRISEPREMIUM_STUDENT'          =    'Office 365 A5 for Students'
+#Standalone Plans
+'EXCHANGEDESKLESS'                   =    'Exchange Online Kiosk'
+'EXCHANGESTANDARD'                   =    'Exchange Online (Plan 1)'
+'EXCHANGEENTERPRISE'                 =    'Exchange Online (Plan 2)'
+'EXCHANGEARCHIVE'                    =    'Exchange Online Archiving for Exchange Server'
+'EXCHANGEARCHIVE_ADDON'              =    'Exchange Archive for Exchange Online'
+}
+    <#Enterprise Plans
     $Plans.Add("STANDARDPACK","Office 365 Enterprise E1")
     $Plans.Add("ENTERPRISEPACK","Office 365 Enterprise E3")
     $Plans.Add("ENTERPRISEPACKWITHSCAL","Office 365 Enterprise E4")
@@ -98,6 +129,7 @@ $Plans = @{}
     $Plans.Add("EXCHANGEENTERPRISE","Exchange Online (Plan 2)")
     $Plans.Add("EXCHANGEARCHIVE","Exchange Online Archiving for Exchange Server")
     $Plans.Add("EXCHANGEARCHIVE_ADDON","Exchange Archive for Exchange Online")
+#>
 
 #Get and save credentials and connect to MSOL.
 
