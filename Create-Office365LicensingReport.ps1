@@ -36,8 +36,8 @@ param(
 [parameter(ParameterSetName="CSPD",Mandatory=$true,HelpMessage="The customer domain name, required for Cloud Service Partners.")]
 [string]$CSPCustomerDomain,
 [parameter(ParameterSetName="CSPA",Mandatory=$true,HelpMessage="For Cloud Service Partners, runs through all CSP customers.")]
-[string]$CSPAll,
-[parameter(Mandatory=$true,HelpMessage="The file and folder path for the output Excel file.")]
+[switch]$CSPAll,
+[parameter(Mandatory=$false,HelpMessage="The folder path for the output Excel file. Current Directory if ommitted.")]
 [string]$Path,
 [parameter(Mandatory=$true,HelpMessage="Do you want a Summary or Full Report?")][validateset('Summary','Full')]
 [string]$ReportType
@@ -83,6 +83,7 @@ foreach($user in $MSOLUsers)
 
     New-Object -TypeName PSObject -Property @{
                         LoginStatus = $LoginStatus
+                        DisplayName = $user.DisplayName
                         UserPrincipalName = $user.UserPrincipalName
                         SkuName = $SkuName
                         SkuType = $SkuType
@@ -101,16 +102,7 @@ $Datefield = Get-Date -Format {MMddyyyy}
 #Import the SKU Details from Excel File
 $Plans = Import-Excel -Path C:\working\SKUDetails.xlsx
 
-#Set the Temp File Name and Location.
-    $Incr = 1
-    DO{
-    
-    $TempFilePath = "$Env:TEMP\$Datefield$Incr.csv"
-    $Incr = $Incr + 1
-    $testpath = Test-Path $TempFilePath
 
-    }
-    UNTIL($testpath -eq $false) 
 
 #Get and save credentials and connect to MSOL.
 
@@ -126,24 +118,168 @@ Connect-MSOLService
 
 
 
-
-
-Write-Host "Executing Step 1: Query for user details from Office 365. Please wait."
-
-#Compile list of Office 365 users.
-IF($CSPCustomerDomain -or $CSPAll)
+#If the CSPAll switch is set, get list of all customer tenant ids.
+IF($CSPAll)
 {
-    #Get the Tenant ID
-    $TenantId = (Get-MsolPartnerContract -DomainName $CSPCustomerDomain).TenantId
-
-    $MSOLUsers = Get-MsolUser -EnabledFilter All -All -TenantId $TenantId | Select BlockCredential,Licenses,UserPrincipalName
+$TenantInfo = Get-MsolPartnerContract | select Name,TenantId
 }
 ELSE
 {
-    $MSOLUsers = Get-MsolUser -EnabledFilter All -All | Select BlockCredential,Licenses,UserPrincipalName
+    
+    IF($CSPCustomerDomain)
+    {
+    $TenantInfo = Get-MsolPartnerContract -DomainName $CSPCustomerDomain | select Name,TenantId
+    }
+    ELSE
+    {
+    $TenantInfo = Get-MsolCompanyInformation | select @{N='Name';E={$_.DisplayName}}
+    }
+}
+
+Foreach($Tenant in $TenantInfo)
+{
+$CompanyName = $Tenant.Name
+$TenantId = $Tenant.TenantId
+Write-Host "Gathering information for Company: $CompanyName."
+
+#Set the Temp File Name and Location.
+    $Incr = 1
+    $testpath = $null
+    DO{
+    
+    $TempFilePath = "$Env:TEMP\$TenantId$Datefield$Incr.csv"
+    $Incr = $Incr + 1
+    $testpath = Test-Path $TempFilePath
+
+    }
+    UNTIL($testpath -eq $false) 
+
+#Step 1
+Write-Host "Executing Step 1: Query for user details from Office 365. Please wait."
+
+IF($TenantID)
+{
+    $MSOLUsers = Get-MsolUser -EnabledFilter All -All -TenantId $TenantId | Select DisplayName,BlockCredential,Licenses,UserPrincipalName
+}
+ELSE
+{
+    $MSOLUsers = Get-MsolUser -EnabledFilter All -All | Select DisplayName,BlockCredential,Licenses,UserPrincipalName
 }
 
 #Create the Temp File.
+
+    #Bit of logic to deal with empty customers when running CSP.
+    $MSOLUserCount = ($MSOLUsers | measure).Count
+    IF($MSOLUserCount -lt 5)
+    {
+    Write-Host "Under 5 users, tenancy appears unused. Skipping."
+    Continue
+    }
+
 Create-TempFile -MSOLUsers $MSOLUsers
+
+#Step 2
+Write-Host "Step 2: Creating Report."
+
+$Tempfile = Import-Csv -Path $TempFilePath
+
+#Set the Output File Name and Location.
+    $Incr = 1
+    $testpath = $null
+    DO{
+    IF($Path)
+    {
+    $OutFilePath = "$Path\$CompanyName$Datefield$Incr.xlsx"
+    }
+    ELSE
+    {
+    $OutFilePath = "$CurrentPath\$CompanyName$Datefield$Incr.xlsx"
+    }
+
+    $Incr = $Incr + 1
+    $testpath = Test-Path $OutFilePath
+
+    }
+    UNTIL($testpath -eq $false) 
+
+
+#Create Summary Sheet
+Write-Host "Creating Summary Sheet."
+    #Total Users
+    $TotalUsers = ($Tempfile | Select-Object UserPrincipalName -Unique | Measure).Count
+    #Disabled Users
+    $DisabledUsers = ($Tempfile | where {$_.LoginStatus -eq "Disabled"} | Select-Object UserPrincipalName -Unique | measure).Count
+    #Enabled Licensed Users
+    $EnabledLicensedUsers = ($Tempfile | where {($_.LoginStatus -eq "Enabled") -and ($_.SKuName -like "*")} | Select-Object UserPrincipalName -Unique | measure).Count
+    #Disabled Licensed Users
+    $DisabledLicensedUsers = ($Tempfile | where {($_.LoginStatus -eq "Disabled") -and ($_.SKuName -like "*")} | Select-Object UserPrincipalName -Unique | measure).Count
+    #Estimated Monthly Retail Cost of Enabled Users Licensing
+    $EstRetailEnabled = (($Tempfile | where {($_.LoginStatus -eq "Enabled") -and ($_.SKuName -like "*")} | Select-Object SkuRetail).SkuRetail | Measure -sum).Sum
+    #Estimated Monthly Retail Cost of Disabled Users Licensing
+    $EstRetailDisabled = (($Tempfile | where {($_.LoginStatus -eq "Disabled") -and ($_.SKuName -like "*")} | Select-Object SkuRetail).SkuRetail | Measure -sum).Sum
+
+#Export Summary Sheet
+    New-Object -TypeName PSObject -Property @{
+        TotalUsers = $TotalUsers
+        DisabledUsers = $DisabledUsers
+        EnabledLicensedUsers = $EnabledLicensedUsers
+        DisabledLicensedUsers = $DisabledLicensedUsers
+        EstRetailEnabled = $EstRetailEnabled
+        EstRetailDisabled = $EstRetailDisabled
+    } | export-excel -Path $OutFilePath -WorksheetName "Summary"
+
+#Create All Users Sheet
+$AllUsersSheet = New-Object System.Data.DataTable
+$AllUsersSheet.Columns.Add("DisplayName","string")
+$AllUsersSheet.Columns.Add("UserPrincipalName","string")
+$AllUsersSheet.PrimaryKey = $AllUsersSheet.Columns[1]
+$AllUsersSheet.Columns.Add("Licenses","string")
+$AllUsersSheet.Columns.Add("LoginStatus","string")
+$AllUsersSheet.Columns.Add("EstimatedRetailCostUSD","int32")
+
+
+Write-Host "Creating Full Report"
+
+$Tempfile | ForEach-Object {
+    $line = $_
+    #Check if UPN already in AllUsersSheet
+
+    $testline = $AllUsersSheet | where {$_.UserPrincipalName -eq $line.UserPrincipalName}
+    IF(-not $testline)
+    {
+    $r = $AllUsersSheet.NewRow()
+    $r.DisplayName = $line.DisplayName
+    $r.UserPrincipalName = $line.userprincipalname
+    $r.Licenses = $line.SkuName
+    $r.LoginStatus = $line.LoginStatus
+    $r.EstimatedRetailCostUSD = [int32]$line.SkuRetail
+    $AllUsersSheet.Rows.Add($r)
+    }
+    ELSE
+    {
+    $AllUsersSheet | where {$_.UserPrincipalName -eq $line.UserPrincipalName} | foreach {
+        $_.Licenses = ($_.Licenses + ";" + $line.SkuName)
+        $_.EstimatedRetailCostUSD = $_.EstimatedRetailCostUSD + $line.SkuRetail
+        }
+    }
+} 
+
+$AllUsersSheet | Export-Excel -Path $OutFilePath -WorksheetName "All Users"
+
+#Create the Disabled Users with Licenses Sheet
+
+$DisUserWithLicenseSheet = $AllUsersSheet | Where {$_.LoginStatus -eq "Disabled"}
+
+$DisUserWithLicenseSheet | Export-Excel -Path $OutFilePath -WorksheetName "Disabled Users"
+
+
+#Clean Up Temp File
+Remove-Item $TempFilePath -Confirm:$false
+
+$TenantId = $null
+$MSOLUsers = $null
+}
+
+
 
 write-host "Job's done, Boss."
