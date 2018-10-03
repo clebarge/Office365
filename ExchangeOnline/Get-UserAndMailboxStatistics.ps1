@@ -99,37 +99,7 @@ $Plans = @{
 'EXCHANGEARCHIVE'                    =    'Exchange Online Archiving for Exchange Server'
 'EXCHANGEARCHIVE_ADDON'              =    'Exchange Archive for Exchange Online'
 }
-    <#Enterprise Plans
-    $Plans.Add("STANDARDPACK","Office 365 Enterprise E1")
-    $Plans.Add("ENTERPRISEPACK","Office 365 Enterprise E3")
-    $Plans.Add("ENTERPRISEPACKWITHSCAL","Office 365 Enterprise E4")
-    $Plans.Add("ENTERPRISEPREMIUM","Office 365 Enterprise E5")
-    $Plans.Add("ENTERPRISEPREMIUM_NOPSTNCONF","Office 365 Enterprise E5 without PSTN Conferencing")
-    #Frontline Worker (Kiosk)
-    $Plans.Add("DESKLESSPACK","Office 365 F1")
-    #Microsoft 365
-    $Plans.Add("SPE_F1","Microsoft 365 F1")
-    $Plans.Add("SPE_E3","Microsoft 365 E3")
-    $Plans.Add("SPE_E5","Microsoft 365 E5")
-    #Small and Medium Business
-    $Plans.Add("O365_BUSINESS_PREMIUM","Office 365 Business Premium")
-    $Plans.Add("O365_BUSINESS_ESSENTIALS","Office 365 Business Essentials")
-    #Education Plans
-    $Plans.Add("STANDARDWOFFPACK_FACULTY","Office 365 A1 for Faculty")
-    $Plans.Add("STANDARDWOFFPACK_STUDENT","Office 365 A1 for Students")
-    $Plans.Add("STANDARDWOFFPACK_IW_FACULTY","Office 365 A1 Plus for Faculty")
-    $Plans.Add("STANDARDWOFFPACK_IW_STUDENT","Office 365 A1 Plus for Students")
-    $Plans.Add("ENTERPRISEPACK_FACULTY","Office 365 A3 for Faculty")
-    $Plans.Add("ENTERPRISEPACK_STUDENT","Office 365 A3 for Students")
-    $Plans.Add("ENTERPRISEPREMIUM_FACULTY","Office 365 A5 for Faculty")
-    $Plans.Add("ENTERPRISEPREMIUM_STUDENT","Office 365 A5 for Students")
-    #Standalone Plans
-    $Plans.Add("EXCHANGEDESKLESS","Exchange Online Kiosk")
-    $Plans.Add("EXCHANGESTANDARD","Exchange Online (Plan 1)")
-    $Plans.Add("EXCHANGEENTERPRISE","Exchange Online (Plan 2)")
-    $Plans.Add("EXCHANGEARCHIVE","Exchange Online Archiving for Exchange Server")
-    $Plans.Add("EXCHANGEARCHIVE_ADDON","Exchange Archive for Exchange Online")
-#>
+
 
 #Get and save credentials and connect to MSOL.
 
