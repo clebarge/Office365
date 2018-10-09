@@ -26,7 +26,7 @@ Create-Office365LicensingReport.ps1
     [-Path] <string>
 
 
-    Version: 1.0.beta.10012018
+    Version: 1.0.beta.10052018
     Author: Clark B. Lebarge
     Company: Long View Systems
 
@@ -96,6 +96,17 @@ $MSOLUserCount = $null
             $TenantCount = 1
             }
         }
+
+        #This is a hash table of known resellers and their partner IDs for output on the Subscription Details.
+        
+        $Partners = $null
+        $Partners = @{
+            'ac07b96d-b94d-4830-90c3-361acdfb17d7' = 'Long View Systems'
+            '0c5f32df-56ac-40ff-b99c-e7b918d4ac16' = 'F12.net Inc. - Old'
+            'db73bd59-4978-4089-8693-1f5749dc4e57' = 'KPMG Adoxio'
+            '813fb400-867f-48d6-8dce-3e3d48e2e0fe' = 'Polycom'
+            'f53a30b2-d978-4df8-a063-7f1cd3f44899' = 'UXC Eclipse Canada (CSP)'
+        }
     
     #Part 2, Creation of the report for each tenant.
         #This is accomplished in a loop process for CSP usage.
@@ -103,116 +114,31 @@ $MSOLUserCount = $null
         $TenantInfo | ForEach-Object -Begin {$I=0} -Process {
             $Tenant = $_
 
-            #Part 2, Step 1, query Office 365 for user properties and save information on licensing to a temporary CSV file.
+            #Part 2, Step 1, query Office 365 for user properties and save information on licensing to a variable.
 
             #Set Variables to tenant info.
             $CompanyName = $Tenant.Name
             $TenantId = $Tenant.TenantId
             $PrimaryDomain = $Tenant.DefaultDomainName
 
-            #Set the Temp File Name and Location.
-            $Incr = 1
-            $testpath = $null
-            DO{
-    
-            $TempFilePath = "$Env:TEMP\$TenantId$Datefield$Incr.csv"
-            $Incr = $Incr + 1
-            $testpath = Test-Path $TempFilePath
-
-            }
-            UNTIL($testpath -eq $false)
-            
+           
             #For CSP usage the tenant ID is needed in the command.
             IF($TenantID)
             {
-                $MSOLUsers = Get-MsolUser -EnabledFilter All -All -TenantId $TenantId | Select DisplayName,BlockCredential,Licenses,UserPrincipalName
+                $MSOLUsers = Get-MsolUser -EnabledFilter All -All -TenantId $TenantId -ErrorAction SilentlyContinue | Select DisplayName,BlockCredential,Licenses,UserPrincipalName,LastDirSyncTime
+                $MSOLAccountSkus = Get-MsolAccountSku -TenantId $tenantId -ErrorAction SilentlyContinue | where {$_.TargetClass -eq "User"} | select ActiveUnits,ConsumedUnits,LockedOutUnits,SuspendedUnits,WarningUnits,SkuId,SkuPartNumber,@{N="SubscriptionIds";E={$_.SubscriptionIds}}
+                $MSOLSubscriptions = Get-MsolSubscription -TenantId $tenantId | where {$_.Status -eq "Enabled"} | select DateCreated,NextLifecycleDate,IsTrial,OwnerObjectId,SkuId,SkuPartNumber,TotalLicenses
             }
             ELSE
             {
-                $MSOLUsers = Get-MsolUser -EnabledFilter All -All | Select DisplayName,BlockCredential,Licenses,UserPrincipalName
+                $MSOLUsers = Get-MsolUser -EnabledFilter All -All -ErrorAction SilentlyContinue | Select DisplayName,BlockCredential,Licenses,UserPrincipalName,LastDirSyncTime
+                $MSOLAccountSkus = Get-MsolAccountSku -ErrorAction SilentlyContinue | where {$_.TargetClass -eq "User"} | select ActiveUnits,ConsumedUnits,LockedOutUnits,SuspendedUnits,WarningUnits,SkuId,SkuPartNumber,@{N="SubscriptionIds";E={$_.SubscriptionIds}}
+                $MSOLSubscriptions = Get-MsolSubscription | where {$_.Status -eq "Enabled"} | select DateCreated,NextLifecycleDate,IsTrial,OwnerObjectId,SkuId,SkuPartNumber,TotalLicenses
             }
-            #Create the Temp File.
 
-            #Bit of logic to deal with empty or test customers when running CSP.
-            $MSOLUserCount = ($MSOLUsers | measure).Count
-
-            #We take the raw information from Office 365 and replace license IDs with readable names and export to CSV each line.
-                #We do this in a loop too!
-                $MSOLUsers | ForEach-Object -Begin {$Ia=0} -Process {
-                $user = $_
-                #Set Login Status from Office 365.
-
-                IF($user.BlockCredential -eq $false)
-                {
-                $LoginStatus = "Enabled"
-                }
-                ELSE
-                {
-                $LoginStatus = "Disabled"
-                }
-
-                #Set License Readable Name
-
-                $Lics = $user.licenses.accountsku.skupartnumber
-
-                IF($Lics)
-                {
-                    Foreach($lic in $lics)
-                    {
-                    $SkuName = $null
-                    $SkuType = $null
-                    $SkuRetail = $null
-                    $SkuStatus = $null
-                    $SkuPartNumber = $null
-
-                    $SkuName = ($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuName
-                    $SkuType = ($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuType
-                    $SkuRetail = ($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuRetail
-                    $SkuStatus = ($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuStatus
-                    $SkuPartNumber = ($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuPartNumber
-    
- 
-    
-                    #Output the raw statistics CSV file to the temp directory.
-
-                    New-Object -TypeName PSObject -Property @{
-                                        LoginStatus = $LoginStatus
-                                        DisplayName = $user.DisplayName
-                                        UserPrincipalName = $user.UserPrincipalName
-                                        SkuName = $SkuName
-                                        SkuType = $SkuType
-                                        SkuRetail = $SkuRetail
-                                        SkuStatus = $SkuStatus
-                                        SkuPartNumber = $SkuPartNumber
-                                        } | Export-Csv -NoTypeInformation -Path $TempFilePath -Append
-                    }
-                }
-                ELSE
-                {
-                    $SkuName = "No Licenses"
-                    $SkuType = ""
-                    $SkuRetail = ""
-                    $SkuStatus = ""
-                    $SkuPartNumber = ""
-                    New-Object -TypeName PSObject -Property @{
-                                        LoginStatus = $LoginStatus
-                                        DisplayName = $user.DisplayName
-                                        UserPrincipalName = $user.UserPrincipalName
-                                        SkuName = $SkuName
-                                        SkuType = $SkuType
-                                        SkuRetail = $SkuRetail
-                                        SkuStatus = $SkuStatus
-                                        SkuPartNumber = $SkuPartNumber
-                                        } | Export-Csv -NoTypeInformation -Path $TempFilePath -Append
-                }
-                $Ia=$Ia+1
-                Write-Progress -Activity "Querying $CompanyName Office 365 for user statitics." -Status "Sub-progress:" -PercentComplete ($Ia/$MSOLUserCount*100)
-                } 
-        
         #Part 2, Step 2, Create the Summary Report.
 
-            #import in the temp file as a variable.
-            $Tempfile = Import-Csv -Path $TempFilePath
+
 
             #Set the Output File Name and Location.
             $Incr = $null
@@ -240,33 +166,101 @@ $MSOLUserCount = $null
             $Report = Open-ExcelPackage -Path $OutFilePath
 
             
-            #Create Summary Sheet
+            #Create Summary Sheet and Subscription Details
                 
                 #Total Users
-                $TotalUsers = ($Tempfile | Select-Object UserPrincipalName -Unique | Measure).Count
+                $TotalUsers = ($MSOLUsers | Select-Object UserPrincipalName -Unique | Measure).Count
                 #Disabled Users
-                $DisabledUsers = ($Tempfile | where {$_.LoginStatus -eq "Disabled"} | Select-Object UserPrincipalName -Unique | measure).Count
+                $DisabledUsers = ($MSOLUsers | where {$_.BlockCredential -eq $true} | Select-Object UserPrincipalName -Unique | measure).Count
                 #Enabled Licensed Users
-                $EnabledLicensedUsers = ($Tempfile | where {($_.LoginStatus -eq "Enabled") -and ($_.SKuName -ne "No Licenses")} | Select-Object UserPrincipalName -Unique | measure).Count
+                $EnabledLicensedUsers = ($MSOLUsers | where {($_.BlockCredential -eq $false) -and ($_.Licenses -like "*")} | Select-Object UserPrincipalName -Unique | measure).Count
                 #Disabled Licensed Users
-                $DisabledLicensedUsers = ($Tempfile | where {($_.LoginStatus -eq "Disabled") -and ($_.SKuName -ne "No Licenses")} | Select-Object UserPrincipalName -Unique | measure).Count
+                $DisabledLicensedUsers = ($MSOLUsers | where {($_.BlockCredential -eq $true) -and ($_.licenses -like "*")} | Select-Object UserPrincipalName -Unique | measure).Count
                 #Estimated Monthly Retail Total of all Licensing
-                $EstRetailTotal =  (($Tempfile | where {$_.SKuName -ne "No Licenses"} | Select-Object SkuRetail).SkuRetail | Measure -sum).Sum
+                $EstRetailTotal =  ($msolusers | ForEach-Object {$user = $_ ; $Lics = $user.licenses.accountsku.skupartnumber ; IF($Lics){foreach($lic in $lics){($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuRetail}}} | measure -Sum).Sum
                 #Estimated Monthly Retail Cost of Enabled Users Licensing
-                $EstRetailEnabled = (($Tempfile | where {($_.LoginStatus -eq "Enabled") -and ($_.SKuName -ne "No Licenses")} | Select-Object SkuRetail).SkuRetail | Measure -sum).Sum
+                $EstRetailEnabled = ($msolusers | where {$_.BlockCredential -eq $false} | ForEach-Object {$user = $_ ; $Lics = $user.licenses.accountsku.skupartnumber ; IF($Lics){foreach($lic in $lics){($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuRetail}}} | measure -Sum).Sum
                 #Estimated Monthly Retail Cost of Disabled Users Licensing
-                $EstRetailDisabled = (($Tempfile | where {($_.LoginStatus -eq "Disabled") -and ($_.SKuName -ne "No Licenses")} | Select-Object SkuRetail).SkuRetail | Measure -sum).Sum
+                $EstRetailDisabled = ($msolusers | where {$_.BlockCredential -eq $true} | ForEach-Object {$user = $_ ; $Lics = $user.licenses.accountsku.skupartnumber ; IF($Lics){foreach($lic in $lics){($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuRetail}}} | measure -Sum).Sum
 
-            $SummarySheet = $Report.Workbook.Worksheets["Summary"]
-            Set-ExcelRange -WorkSheet $SummarySheet -Range B3 -Value $CompanyName
-            Set-ExcelRange -WorkSheet $SummarySheet -Range B4 -Value $PrimaryDomain
-            Set-ExcelRange -WorkSheet $SummarySheet -Range B5 -Value $TotalUsers
-            Set-ExcelRange -WorkSheet $SummarySheet -Range B6 -Value $DisabledUsers
-            Set-ExcelRange -WorkSheet $SummarySheet -Range B7 -Value $EnabledLicensedUsers
-            Set-ExcelRange -WorkSheet $SummarySheet -Range B8 -Value $DisabledLicensedUsers
-            Set-ExcelRange -WorkSheet $SummarySheet -Range B9 -Value $EstRetailTotal
-            Set-ExcelRange -WorkSheet $SummarySheet -Range B10 -Value $EstRetailEnabled
-            Set-ExcelRange -WorkSheet $SummarySheet -Range B11 -Value $EstRetailDisabled
+                $SummarySheet = $Report.Workbook.Worksheets["Summary"]
+                Set-ExcelRange -WorkSheet $SummarySheet -Range B3 -Value $CompanyName
+                Set-ExcelRange -WorkSheet $SummarySheet -Range B4 -Value $PrimaryDomain
+                Set-ExcelRange -WorkSheet $SummarySheet -Range B5 -Value $TotalUsers
+                Set-ExcelRange -WorkSheet $SummarySheet -Range B6 -Value $DisabledUsers
+                Set-ExcelRange -WorkSheet $SummarySheet -Range B7 -Value $EnabledLicensedUsers
+                Set-ExcelRange -WorkSheet $SummarySheet -Range B8 -Value $DisabledLicensedUsers
+                Set-ExcelRange -WorkSheet $SummarySheet -Range B9 -Value $EstRetailTotal
+                Set-ExcelRange -WorkSheet $SummarySheet -Range B10 -Value $EstRetailEnabled
+                Set-ExcelRange -WorkSheet $SummarySheet -Range B11 -Value $EstRetailDisabled
+
+                #Usage by License
+                
+                $row = 14
+                foreach($sku in $MSOLAccountSkus)
+                {
+                   $SkuStatus = $Null
+                   $SkuStatus = ($Plans | where {$_.SkuStatus -ne "NonBillable" -and $_.SkuPartNumber -eq $sku.SkuPartNumber} | select SkuStatus).SkuStatus
+                   IF($SkuStatus)
+                   {
+                   $LicenseName = ($Plans | where {$_.SkuPartNumber -eq $sku.SkuPartNumber} | select SkuName).SkuName
+                   $LicTotal = $sku.ActiveUnits
+                   $LicUsed = $sku.ConsumedUnits
+                   $LicAvail = $LicTotal - $LicUsed
+                   $LicEstRet = $LicTotal * ($Plans | where {$_.SkuPartNumber -eq $sku.SkuPartNumber} | select SkuRetail).SkuRetail
+                   $LicEstUnused = ($LicTotal - $LicUsed - ($msolusers | where {$_.BlockCredential -eq $true -and $_.Licenses.AccountSku.SkuPartNumber -eq $sku.SkuPartNumber} | measure -sum -ErrorAction SilentlyContinue).Sum) * ($Plans | where {$_.SkuPartNumber -eq $sku.SkuPartNumber} | select SkuRetail).SkuRetail
+                   
+                   Set-ExcelRange -WorkSheet $SummarySheet -Range ("A" + $row) -Value $LicenseName
+                   Set-ExcelRange -WorkSheet $SummarySheet -Range ("B" + $row) -Value $LicTotal
+                   Set-ExcelRange -WorkSheet $SummarySheet -Range ("C" + $row) -Value $LicUsed
+                   Set-ExcelRange -WorkSheet $SummarySheet -Range ("D" + $row) -Value $LicAvail
+                   Set-ExcelRange -WorkSheet $SummarySheet -Range ("E" + $row) -Value $LicEstRet
+                   Set-ExcelRange -WorkSheet $SummarySheet -Range ("F" + $row) -Value $LicEstUnused
+
+                   $Row = $row + 1
+                   }
+                }
+
+                #Subscription Details
+                $SubscriptionSheet = $Report.Workbook.Worksheets["Subscription_Details"]
+                $row = 2
+                foreach($sub in $MSOLSubscriptions)
+                {
+                    $SkuStatus = $Null
+                    $SkuStatus = ($Plans | where {$_.SkuStatus -ne "NonBillable" -and $_.SkuPartNumber -eq $sub.SkuPartNumber} | select SkuStatus).SkuStatus
+                    IF($SkuStatus)
+                    {
+                        [string]$PartnerID = $sub.OwnerObjectId
+                        IF($PartnerID)
+                        {
+                        $PurchasedFrom = $Partners.$PartnerID
+                        }
+                        ELSE
+                        {
+                        $PurchasedFrom = ""
+                        }
+
+                        $LicenseName = ($Plans | where {$_.SkuPartNumber -eq $sub.SkuPartNumber} | select SkuName).SkuName
+                        $DateCreated = $sub.DateCreated.ToString("MM/dd/yyyy")
+                        $NextLifecycleDate = $sub.NextLifecycleDate.ToString("MM/dd/yyyy")
+                        $IsTrial = $sub.IsTrial
+                        $TotalLicenses = $sub.TotalLicenses
+                        $EstUnitCost = ($Plans | where {$_.SkuPartNumber -eq $sub.SkuPartNumber}).SkuRetail
+                        $EstTotal = $TotalLicenses * $EstUnitCost
+
+                        Set-ExcelRange -WorkSheet $SubscriptionSheet -Range ("A" + $row) -Value $LicenseName
+                        Set-ExcelRange -WorkSheet $SubscriptionSheet -Range ("B" + $row) -Value $DateCreated
+                        Set-ExcelRange -WorkSheet $SubscriptionSheet -Range ("C" + $row) -Value $NextLifecycleDate
+                        Set-ExcelRange -WorkSheet $SubscriptionSheet -Range ("D" + $row) -Value $IsTrial
+                        Set-ExcelRange -WorkSheet $SubscriptionSheet -Range ("E" + $row) -Value $TotalLicenses
+                        Set-ExcelRange -WorkSheet $SubscriptionSheet -Range ("F" + $row) -Value $EstUnitCost
+                        Set-ExcelRange -WorkSheet $SubscriptionSheet -Range ("G" + $row) -Value $EstTotal
+                        Set-ExcelRange -WorkSheet $SubscriptionSheet -Range ("H" + $row) -Value $PurchasedFrom
+
+                        $row = $row + 1
+                    }
+                }
+
 
             #Logic check to determine if a full report is requested.
             IF($ReportType -eq "Summary")
@@ -275,355 +269,53 @@ $MSOLUserCount = $null
             }
             ELSE
             {
-                #THIS SECTION NEEDS HELP. TOO MANY LOOPS, NEED TO DO GOODER LOGIC!
-                
-                #We need to combine all licenses for each unique user to create readable reporting.
-                $CombinedLicenses = @{}
-                $Tempfile | ForEach-Object {
-                    $line = $_
-                    
-                    $UPN = $line.UserPrincipalName
+                #Creating the Users detail sheet.
+                $UsersSheet = $Report.Workbook.Worksheets["User_Details"]
 
-                    IF(-not $CombinedLicenses.ContainsKey($UPN))
+                $MSOLUsers | ForEach-Object -Begin {$row=2; $If=0} -Process {
+                    $user = $_
+
+                    $DisplayName = $user.DisplayName
+                    $UserPrincipalName = $user.UserPrincipalName
+                    IF($user.BlockCredential -eq $False)
                     {
-                    $CombinedLicenses.Add($line.UserPrincipalName,$line.SkuName)
+                    $LoginStatus = "Enabled"
                     }
                     ELSE
                     {
-                    $SkuLine = ($CombinedLicenses.item($line.UserPrincipalName) + ";" + $Line.SkuName)
-                    $CombinedLicenses.Remove($line.UserPrincipalName)
-                    $CombinedLicenses.add($line.UserPrincipalName,$SkuLine)
+                    $LoginStatus = "Disabled"
                     }
-                }
+                    #Licenses Break Out
+                        [string]$Licenses = $null
+                        [int32]$EstRetail = $null
+                        $Lics = $user.Licenses.AccountSku
 
-                #And also for the RetailUSD of the licenses.
-                $CombinedRetail = @{}
-                $Tempfile | ForEach-Object {
-                    $line = $_
+                        foreach($lic in $Lics)
+                        {
+                        $thislic = ($Plans | where {$_.SkuPartNumber -eq $lic.SkuPartNumber}).SkuName
+                        $Licenses = ($Licenses + " " + $thislic)
+                        $thisretail = ($Plans | where {$_.SkuPartNumber -eq $lic.SkuPartNumber}).SkuRetail
+                        $EstRetail = $EstRetail + $thisretail
+                        }
                     
-                    $UPN = $line.UserPrincipalName
-                    [int32]$SkuRetail = $line.SkuRetail
+                    Set-ExcelRange -WorkSheet $UsersSheet -Range ("A" + $row) -Value $DisplayName
+                    Set-ExcelRange -WorkSheet $UsersSheet -Range ("B" + $row) -Value $UserPrincipalName
+                    Set-ExcelRange -WorkSheet $UsersSheet -Range ("C" + $row) -Value $LoginStatus
+                    Set-ExcelRange -WorkSheet $UsersSheet -Range ("D" + $row) -Value $Licenses
+                    Set-ExcelRange -WorkSheet $UsersSheet -Range ("E" + $row) -Value $EstRetail
 
-                    IF(-not $CombinedRetail.ContainsKey($UPN))
-                    {
-                    $CombinedRetail.Add($UPN,$SkuRetail)
-                    }
-                    ELSE
-                    {
-                    $SkuLine = $CombinedRetail.item($UPN) + $SkuRetail
-                    $CombinedRetail.Remove($UPN)
-                    $CombinedRetail.add($UPN,$SkuLine)
-                    }
+                    $row = $row + 1
+                    #Progress Bar
+                    $If = $If+1
+                    Write-Progress -Activity "Creating All User Details for $CompanyName" -Status "Progress:" -PercentComplete ($If/($MSOLUsers | measure).Count*100)
                 }
 
-                            
-            #Update the All_Users sheet.
-                $All_UsersSheet = $Report.Workbook.Worksheets["All_Users"]
-                $Row = 2
-                Foreach($line in $CombinedLicenses.Keys)
-                {
-                $UPN = $line
-                $Licenses = $CombinedLicenses.$UPN
-                $DisplayName = ($Tempfile | where {$_.UserPrincipalName -eq $UPN}).DisplayName
-                $LoginStatus = ($Tempfile | where {$_.UserPrincipalName -eq $UPN}).LoginStatus
-                $EstRetailUSD = $CombinedRetail.Item($UPN)
-                
-                Set-ExcelRange -WorkSheet $All_UsersSheet -Value $DisplayName -Range ("A" + $Row)
-                Set-ExcelRange -WorkSheet $All_UsersSheet -Value $UPN -Range ("B" + $Row)
-                Set-ExcelRange -WorkSheet $All_UsersSheet -Value $LoginStatus -Range ("C" + $Row)
-                Set-ExcelRange -WorkSheet $All_UsersSheet -Value $Licenses -Range ("D" + $Row)
-                Set-ExcelRange -WorkSheet $All_UsersSheet -Value $EstRetailUSD -Range ("E" + $Row)
-
-                $Row = $Row + 1
-
-                }
-            #Update the Licensed_Enabled sheet.
-                $Licensed_EnabledSheet = $Report.Workbook.Worksheets["Licensed_Enabled"]
-                $Row = 2
-                Foreach($line in $CombinedLicenses.Keys)
-                {
-                $UPN = $line
-                $Licenses = $CombinedLicenses.$UPN
-                $DisplayName = ($Tempfile | where {$_.UserPrincipalName -eq $UPN}).DisplayName
-                $EstRetailUSD = $CombinedRetail.Item($UPN)
-                $LoginStatus = ($Tempfile | where {$_.UserPrincipalName -eq $UPN}).LoginStatus
-
-                IF($LoginStatus -eq "Enabled" -and $Licenses -ne "No Licenses")
-                {
-                Set-ExcelRange -WorkSheet $Licensed_EnabledSheet -Value $DisplayName -Range ("A" + $Row)
-                Set-ExcelRange -WorkSheet $Licensed_EnabledSheet -Value $UPN -Range ("B" + $Row)
-                Set-ExcelRange -WorkSheet $Licensed_EnabledSheet -Value $LoginStatus -Range ("C" + $Row)
-                Set-ExcelRange -WorkSheet $Licensed_EnabledSheet -Value $Licenses -Range ("D" + $Row)
-                Set-ExcelRange -WorkSheet $Licensed_EnabledSheet -Value $EstRetailUSD -Range ("E" + $Row)
-
-                $Row = $Row + 1
-                }
-                }
-
-            #Update the Licensed_Disabled sheet.
-                $Licensed_DisabledSheet = $Report.Workbook.Worksheets["Licensed_Disabled"]
-                $Row = 2
-                Foreach($line in $CombinedLicenses.Keys)
-                {
-                $UPN = $line
-                $Licenses = $CombinedLicenses.$UPN
-                $DisplayName = ($Tempfile | where {$_.UserPrincipalName -eq $UPN}).DisplayName
-                $EstRetailUSD = $CombinedRetail.Item($UPN)
-                $LoginStatus = ($Tempfile | where {$_.UserPrincipalName -eq $UPN}).LoginStatus
-                IF($LoginStatus -eq "Disabled" -and $Licenses -ne "No Licensing")
-                {
-                Set-ExcelRange -WorkSheet $Licensed_DisabledSheet -Value $DisplayName -Range ("A" + $Row)
-                Set-ExcelRange -WorkSheet $Licensed_DisabledSheet -Value $UPN -Range ("B" + $Row)
-                Set-ExcelRange -WorkSheet $Licensed_DisabledSheet -Value $LoginStatus -Range ("C" + $Row)
-                Set-ExcelRange -WorkSheet $Licensed_DisabledSheet -Value $Licenses -Range ("D" + $Row)
-                Set-ExcelRange -WorkSheet $Licensed_DisabledSheet -Value $EstRetailUSD -Range ("E" + $Row)
-
-                $Row = $Row + 1
-                }
-                }
-
-            #Update the Unlicensed_Enabled sheet.
-                $UnLicensed_EnabledSheet = $Report.Workbook.Worksheets["UnLicensed_Enabled"]
-                $Row = 2
-                Foreach($line in $CombinedLicenses.Keys)
-                {
-                $UPN = $line
-                $Licenses = $CombinedLicenses.$UPN
-                $DisplayName = ($Tempfile | where {$_.UserPrincipalName -eq $UPN}).DisplayName
-                $EstRetailUSD = $CombinedRetail.Item($UPN)
-                $LoginStatus = ($Tempfile | where {$_.UserPrincipalName -eq $UPN}).LoginStatus
-                IF($LoginStatus -eq "Enabled" -and $Licenses -eq "No Licenses")
-                {
-                Set-ExcelRange -WorkSheet $UnLicensed_EnabledSheet -Value $DisplayName -Range ("A" + $Row)
-                Set-ExcelRange -WorkSheet $UnLicensed_EnabledSheet -Value $UPN -Range ("B" + $Row)
-                Set-ExcelRange -WorkSheet $UnLicensed_EnabledSheet -Value $LoginStatus -Range ("C" + $Row)
-                Set-ExcelRange -WorkSheet $UnLicensed_EnabledSheet -Value $Licenses -Range ("D" + $Row)
-                Set-ExcelRange -WorkSheet $UnLicensed_EnabledSheet -Value $EstRetailUSD -Range ("E" + $Row)
-
-                $Row = $Row + 1
-                }
-                }
-
-            #Update the Unlicensed_Disabled sheet.
-                $UnLicensed_DisabledSheet = $Report.Workbook.Worksheets["UnLicensed_Disabled"]
-                $Row = 2
-                Foreach($line in $CombinedLicenses.Keys)
-                {
-                $UPN = $line
-                $Licenses = $CombinedLicenses.$UPN
-                $DisplayName = ($Tempfile | where {$_.UserPrincipalName -eq $UPN}).DisplayName
-                $EstRetailUSD = $CombinedRetail.Item($UPN)
-                $LoginStatus = ($Tempfile | where {$_.UserPrincipalName -eq $UPN}).LoginStatus
-                IF($LoginStatus -eq "Disabled" -and $Licenses -eq "No Licenses")
-                {
-                Set-ExcelRange -WorkSheet $UnLicensed_DisabledSheet -Value $DisplayName -Range ("A" + $Row)
-                Set-ExcelRange -WorkSheet $UnLicensed_DisabledSheet -Value $UPN -Range ("B" + $Row)
-                Set-ExcelRange -WorkSheet $UnLicensed_DisabledSheet -Value $LoginStatus -Range ("C" + $Row)
-                Set-ExcelRange -WorkSheet $UnLicensed_DisabledSheet -Value $Licenses -Range ("D" + $Row)
-                Set-ExcelRange -WorkSheet $UnLicensed_DisabledSheet -Value $EstRetailUSD -Range ("E" + $Row)
-
-                $Row = $Row + 1
-                }
-                }
-
-            }
             #Save the report.
             Export-Excel -ExcelPackage $Report
-        
-        #Clean Up Temp File
-        Remove-Item $TempFilePath -Confirm:$false
          
         #Hey look, a progress bar.
         $I = $I+1
         Write-Progress -Activity "Creating Office 365 Licensing Reports" -Status "Progress:" -PercentComplete ($I/$TenantCount*100)
         }
-
-<#
-Foreach($Tenant in $TenantInfo)
-{
-$CompanyName = $Tenant.Name
-$TenantId = $Tenant.TenantId
-Write-Host "Gathering information for Company: $CompanyName."
-
-#Set the Temp File Name and Location.
-    $Incr = 1
-    $testpath = $null
-    DO{
-    
-    $TempFilePath = "$Env:TEMP\$TenantId$Datefield$Incr.csv"
-    $Incr = $Incr + 1
-    $testpath = Test-Path $TempFilePath
-
     }
-    UNTIL($testpath -eq $false) 
-
-#Step 1
-Write-Host "Executing Step 1: Query for user details from Office 365. Please wait."
-
-IF($TenantID)
-{
-    $MSOLUsers = Get-MsolUser -EnabledFilter All -All -TenantId $TenantId | Select DisplayName,BlockCredential,Licenses,UserPrincipalName
-}
-ELSE
-{
-    $MSOLUsers = Get-MsolUser -EnabledFilter All -All | Select DisplayName,BlockCredential,Licenses,UserPrincipalName
-}
-
-#Create the Temp File.
-
-    #Bit of logic to deal with empty customers when running CSP.
-    $MSOLUserCount = ($MSOLUsers | measure).Count
-    IF($MSOLUserCount -lt 5)
-    {
-    Write-Host "Under 5 users, tenancy appears unused. Skipping."
-    Continue
-    }
-
-foreach($user in $MSOLUsers)
-{
-    #Set Login Status from Office 365.
-    IF($user.BlockCredential -eq $false)
-    {
-    $LoginStatus = "Enabled"
-    }
-    ELSE
-    {
-    $LoginStatus = "Disabled"
-    }
-
-    #Set License Readable Name
-
-    $Lics = $user.licenses.accountsku.skupartnumber
-    Foreach($lic in $lics)
-    {
-    $SkuName = $null
-    $SkuType = $null
-    $SkuRetail = $null
-    $SkuStatus = $null
-
-    $SkuName = ($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuName
-    $SkuType = ($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuType
-    $SkuRetail = ($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuRetail
-    $SkuStatus = ($Plans | Where {$_.SkuPartNumber -eq $Lic}).SkuStatus
-    
- 
-    
-    #Output the raw statistics CSV file to the temp directory.
-
-    New-Object -TypeName PSObject -Property @{
-                        LoginStatus = $LoginStatus
-                        DisplayName = $user.DisplayName
-                        UserPrincipalName = $user.UserPrincipalName
-                        SkuName = $SkuName
-                        SkuType = $SkuType
-                        SkuRetail = $SkuRetail
-                        SkuStatus = $SkuStatus
-                        } | Export-Csv -NoTypeInformation -Path $TempFilePath -Append
-    }
-}
-
-#Step 2
-Write-Host "Step 2: Creating Report."
-
-$Tempfile = Import-Csv -Path $TempFilePath
-
-#Set the Output File Name and Location.
-    $Incr = 1
-    $testpath = $null
-    DO{
-    IF($Path)
-    {
-    $OutFilePath = "$Path\$CompanyName$Datefield$Incr.xlsx"
-    }
-    ELSE
-    {
-    $OutFilePath = "$CurrentPath\$CompanyName$Datefield$Incr.xlsx"
-    }
-
-    $Incr = $Incr + 1
-    $testpath = Test-Path $OutFilePath
-
-    }
-    UNTIL($testpath -eq $false) 
-
-
-#Create Summary Sheet
-Write-Host "Creating Summary Sheet."
-    #Total Users
-    $TotalUsers = ($Tempfile | Select-Object UserPrincipalName -Unique | Measure).Count
-    #Disabled Users
-    $DisabledUsers = ($Tempfile | where {$_.LoginStatus -eq "Disabled"} | Select-Object UserPrincipalName -Unique | measure).Count
-    #Enabled Licensed Users
-    $EnabledLicensedUsers = ($Tempfile | where {($_.LoginStatus -eq "Enabled") -and ($_.SKuName -like "*")} | Select-Object UserPrincipalName -Unique | measure).Count
-    #Disabled Licensed Users
-    $DisabledLicensedUsers = ($Tempfile | where {($_.LoginStatus -eq "Disabled") -and ($_.SKuName -like "*")} | Select-Object UserPrincipalName -Unique | measure).Count
-    #Estimated Monthly Retail Cost of Enabled Users Licensing
-    $EstRetailEnabled = (($Tempfile | where {($_.LoginStatus -eq "Enabled") -and ($_.SKuName -like "*")} | Select-Object SkuRetail).SkuRetail | Measure -sum).Sum
-    #Estimated Monthly Retail Cost of Disabled Users Licensing
-    $EstRetailDisabled = (($Tempfile | where {($_.LoginStatus -eq "Disabled") -and ($_.SKuName -like "*")} | Select-Object SkuRetail).SkuRetail | Measure -sum).Sum
-
-#Export Summary Sheet
-    New-Object -TypeName PSObject -Property @{
-        TotalUsers = $TotalUsers
-        DisabledUsers = $DisabledUsers
-        EnabledLicensedUsers = $EnabledLicensedUsers
-        DisabledLicensedUsers = $DisabledLicensedUsers
-        EstRetailEnabled = $EstRetailEnabled
-        EstRetailDisabled = $EstRetailDisabled
-    } | export-excel -Path $OutFilePath -WorksheetName "Summary"
-
-#Create All Users Sheet
-$AllUsersSheet = New-Object System.Data.DataTable
-$AllUsersSheet.Columns.Add("DisplayName","string")
-$AllUsersSheet.Columns.Add("UserPrincipalName","string")
-$AllUsersSheet.PrimaryKey = $AllUsersSheet.Columns[1]
-$AllUsersSheet.Columns.Add("Licenses","string")
-$AllUsersSheet.Columns.Add("LoginStatus","string")
-$AllUsersSheet.Columns.Add("EstimatedRetailCostUSD","int32")
-
-
-Write-Host "Creating Full Report"
-
-$Tempfile | ForEach-Object {
-    $line = $_
-    #Check if UPN already in AllUsersSheet
-
-    $testline = $AllUsersSheet | where {$_.UserPrincipalName -eq $line.UserPrincipalName}
-    IF(-not $testline)
-    {
-    $r = $AllUsersSheet.NewRow()
-    $r.DisplayName = $line.DisplayName
-    $r.UserPrincipalName = $line.userprincipalname
-    $r.Licenses = $line.SkuName
-    $r.LoginStatus = $line.LoginStatus
-    $r.EstimatedRetailCostUSD = [int32]$line.SkuRetail
-    $AllUsersSheet.Rows.Add($r)
-    }
-    ELSE
-    {
-    $AllUsersSheet | where {$_.UserPrincipalName -eq $line.UserPrincipalName} | foreach {
-        $_.Licenses = ($_.Licenses + ";" + $line.SkuName)
-        $_.EstimatedRetailCostUSD = $_.EstimatedRetailCostUSD + $line.SkuRetail
-        }
-    }
-} 
-
-$AllUsersSheet | Export-Excel -Path $OutFilePath -WorksheetName "All Users"
-
-#Create the Disabled Users with Licenses Sheet
-
-$DisUserWithLicenseSheet = $AllUsersSheet | Where {$_.LoginStatus -eq "Disabled"}
-
-$DisUserWithLicenseSheet | Export-Excel -Path $OutFilePath -WorksheetName "Disabled Users"
-
-
-#Clean Up Temp File
-Remove-Item $TempFilePath -Confirm:$false
-
-$TenantId = $null
-$MSOLUsers = $null
-}
-#>
-
-
 write-host "Job's done, Boss."
