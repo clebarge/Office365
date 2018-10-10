@@ -26,7 +26,7 @@ Create-Office365LicensingReport.ps1
     [-Path] <string>
 
 
-    Version: 1.0.beta.10052018
+    Version: 1.0.beta.10092018
     Author: Clark B. Lebarge
     Company: Long View Systems
 
@@ -38,9 +38,13 @@ param(
 [string]$CSPCustomerDomain,
 [parameter(ParameterSetName="CSPA",Mandatory=$true,HelpMessage="For Cloud Service Partners, runs through all CSP customers.")]
 [switch]$CSPAll,
-[parameter(Mandatory=$false,HelpMessage="The folder path for the output Excel file. Current Directory if ommitted.")]
+[parameter(ParameterSetName="CSPD",Mandatory=$false,HelpMessage="The folder path for the output Excel file. Current Directory if ommitted.")]
+[parameter(ParameterSetName="CSPA",Mandatory=$false,HelpMessage="The folder path for the output Excel file. Current Directory if ommitted.")]
+[parameter(ParameterSetName="NoCSP",Mandatory=$false,HelpMessage="The folder path for the output Excel file. Current Directory if ommitted.")]
 [string]$Path,
-[parameter(Mandatory=$true,HelpMessage="Do you want a Summary or Full Report?")][validateset('Summary','Full')]
+[parameter(ParameterSetName="CSPD",Mandatory=$true,HelpMessage="Do you want a Summary or Full Report?")][validateset('Summary','Full')]
+[parameter(ParameterSetName="CSPA",Mandatory=$true,HelpMessage="Do you want a Summary or Full Report?")][validateset('Summary','Full')]
+[parameter(ParameterSetName="NoCSP",Mandatory=$true,HelpMessage="Do you want a Summary or Full Report?")][validateset('Summary','Full')]
 [string]$ReportType
 )
 
@@ -269,6 +273,104 @@ $MSOLUserCount = $null
             }
             ELSE
             {
+
+#This is basic code for the Last Activity Time gathered from Microsoft Graph. Currently only functional in WFP for testing.
+###########################################################################################################################################
+                IF($CompanyName -like "*Western Forest*")
+                {
+                $resourceAppIdURI = "https://graph.microsoft.com"
+                $ClientID         = "b1f930e5-f5ab-4ff7-ab5f-3174877483ea"   #AKA Application ID
+                $TenantName       = "westernforest0.onmicrosoft.com"             #Your Tenant Name
+                $CredPrompt       = "Auto"                                   #Auto, Always, Never, RefreshSession
+                $redirectUri      = "https://clark-lvs-test7.westernforest.com"                #Your Application's Redirect URI
+                $Uri              = "https://graph.microsoft.com/beta/reports/getOffice365ActiveUserDetail(Period='d180')" #The query you want to issue to Invoke a REST command with
+                $Method           = "GET"
+    
+                  if (!$CredPrompt){$CredPrompt = 'Auto'}
+                    $AadModule = Get-Module -Name "AzureAD" -ListAvailable
+                    if ($AadModule -eq $null) {$AadModule = Get-Module -Name "AzureADPreview" -ListAvailable}
+                    if ($AadModule -eq $null) {write-host "AzureAD Powershell module is not installed. The module can be installed by running 'Install-Module AzureAD' or 'Install-Module AzureADPreview' from an elevated PowerShell prompt. Stopping." -f Yellow;exit}
+                    if ($AadModule.count -gt 1) {
+                        $Latest_Version = ($AadModule | select version | Sort-Object)[-1]
+                        $aadModule      = $AadModule | ? { $_.version -eq $Latest_Version.version }
+                        $adal           = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.dll"
+                        $adalforms      = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.Platform.dll"
+                        }
+                    else {
+                        $adal           = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.dll"
+                        $adalforms      = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.Platform.dll"
+                        }
+                    [System.Reflection.Assembly]::LoadFrom($adal) | Out-Null
+                    [System.Reflection.Assembly]::LoadFrom($adalforms) | Out-Null
+                    $authority          = "https://login.microsoftonline.com/$TenantName"
+                    $authContext        = New-Object "Microsoft.IdentityModel.Clients.ActiveDirectory.AuthenticationContext" -ArgumentList $authority
+                    $platformParameters = New-Object "Microsoft.IdentityModel.Clients.ActiveDirectory.PlatformParameters"    -ArgumentList $CredPrompt
+                    $AccessToken        = $authContext.AcquireTokenAsync($resourceAppIdURI, $clientId, $redirectUri, $platformParameters).Result
+
+                    $Header = @{
+                        'Authorization' = $AccessToken.CreateAuthorizationHeader()
+                        }
+
+                $ActivityReport = (Invoke-RestMethod -Headers $Header -Uri $Uri -UseBasicParsing -Method $Method).Split([Environment]::NewLine,[System.StringSplitOptions]::RemoveEmptyEntries)
+
+                $ActivityStatus = $null
+                $ActivityStatus = @{}
+
+                foreach($line in $ActivityReport)
+                {
+                [string]$UPNfromGraph = ($line.split(',')).GetValue(1)
+                        IF(($line.split(',')).GetValue(11))
+                        {
+                        [datetime]$ExchangeLA = ($line.split(',')).GetValue(11)
+                        $LastActivityDate = $ExchangeLA.ToShortDateString()
+
+                        }
+                        IF(($line.split(',')).GetValue(12))
+                        {
+                        [datetime]$OneDriveLA = ($line.split(',')).GetValue(12)
+                            IF($OneDriveLA -ge $LastActivityDate)
+                            {
+                            $LastActivityDate = $OneDriveLA.ToShortDateString()
+                            }
+                                    }
+                        IF(($line.split(',')).GetValue(13))
+                        {
+                        [datetime]$SharePointLA = ($line.split(',')).GetValue(13)
+                                    IF($SharePointLA -ge $LastActivityDate)
+                            {
+                            $LastActivityDate = $SharePointLA.ToShortDateString()
+                            }
+                        }
+                        IF(($line.split(',')).GetValue(14))
+                        {
+                        [datetime]$SkypeLA = ($line.split(',')).GetValue(14)
+                                    IF($SkypeLA -ge $LastActivityDate)
+                            {
+                            $LastActivityDate = $SkypeLA.ToShortDateString()
+                            }
+                        }
+                        IF(($line.split(',')).GetValue(15))
+                        {
+                        [datetime]$YammerLA = ($line.split(',')).GetValue(15)
+                                    IF($YammerLA -ge $LastActivityDate)
+                            {
+                            $LastActivityDate = $YammerLA.ToShortDateString()
+                            }
+                        }
+                        IF(($line.split(',')).GetValue(16))
+                        {
+                        [datetime]$TeamsLA = ($line.split(',')).GetValue(16)
+                                    IF($TeamsLA -ge $LastActivityDate)
+                            {
+                            $LastActivityDate = $TeamsLA.ToShortDateString()
+                            }
+                        }
+                    $ActivityStatus.Add($UPNfromGraph,$LastActivityDate)
+                }
+                }
+###########################################################################################################################################
+#End of Last Activity Test Code.
+                
                 #Creating the Users detail sheet.
                 $UsersSheet = $Report.Workbook.Worksheets["User_Details"]
 
@@ -285,6 +387,8 @@ $MSOLUserCount = $null
                     {
                     $LoginStatus = "Disabled"
                     }
+
+                    $LastActivityDate = $ActivityStatus.$UserPrincipalName
                     #Licenses Break Out
                         [string]$Licenses = $null
                         [int32]$EstRetail = $null
@@ -303,6 +407,7 @@ $MSOLUserCount = $null
                     Set-ExcelRange -WorkSheet $UsersSheet -Range ("C" + $row) -Value $LoginStatus
                     Set-ExcelRange -WorkSheet $UsersSheet -Range ("D" + $row) -Value $Licenses
                     Set-ExcelRange -WorkSheet $UsersSheet -Range ("E" + $row) -Value $EstRetail
+                    Set-ExcelRange -WorkSheet $UsersSheet -Range ("F" + $row) -Value $LastActivityDate
 
                     $row = $row + 1
                     #Progress Bar
