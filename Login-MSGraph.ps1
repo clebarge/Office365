@@ -47,8 +47,36 @@ param(
 
 ###Begin Body###
 
-#We need to connect, or to have connected already to the Azure AD 2.0 endpoint.
-#This code is a bit of advanced powershell scripting I don't fully understand. Taken from example provided by Microsoft. 
-
 #The connection requires the Application's ID
     $AppId = (Get-AzureADApplication -SearchString $AppName).AppId
+
+#We need to connect, or to have connected already to the Azure AD 2.0 endpoint.
+    
+    #This code is a bit of advanced powershell scripting I don't fully understand. Taken from example provided by Microsoft.
+    #Essentially, rather than running Connect-AzureAD, then running the access token request, this loads only the modules necessary.
+    #If you have already logged in with Connect-AzureAD it may prompt you to select the login again.
+    #If you have not logged on, it should prompt you to login to Azure AD.
+    $AadModule = Get-Module -Name "AzureAD" -ListAvailable
+    if ($AadModule -eq $null) {$AadModule = Get-Module -Name "AzureADPreview" -ListAvailable}
+    if ($AadModule -eq $null) {write-host "AzureAD Powershell module is not installed. The module can be installed by running 'Install-Module AzureAD' or 'Install-Module AzureADPreview' from an elevated PowerShell prompt. Stopping." -f Yellow;exit}
+    if ($AadModule.count -gt 1) {
+        $Latest_Version = ($AadModule | select version | Sort-Object)[-1]
+        $aadModule      = $AadModule | ? { $_.version -eq $Latest_Version.version }
+        $adal           = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.dll"
+        $adalforms      = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.Platform.dll"
+        }
+    else {
+        $adal           = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.dll"
+        $adalforms      = Join-Path $AadModule.ModuleBase "Microsoft.IdentityModel.Clients.ActiveDirectory.Platform.dll"
+        }
+    [System.Reflection.Assembly]::LoadFrom($adal) | Out-Null
+    [System.Reflection.Assembly]::LoadFrom($adalforms) | Out-Null
+
+    #These lines build the Access Token. As this script is intended to be used as test/basis for other scripts the GraphHeader is saved to a Global variable.
+    $authority          = "https://login.microsoftonline.com/$TenantName"
+    $authContext        = New-Object "Microsoft.IdentityModel.Clients.ActiveDirectory.AuthenticationContext" -ArgumentList $authority
+    $platformParameters = New-Object "Microsoft.IdentityModel.Clients.ActiveDirectory.PlatformParameters"    -ArgumentList $CredPrompt
+    $AccessToken        = $authContext.AcquireTokenAsync($resourceAppIdURI, $AppId, $redirectUri, $platformParameters).Result
+    $Global:GraphHeader = @{
+        'Authorization' = $AccessToken.CreateAuthorizationHeader()
+        }
