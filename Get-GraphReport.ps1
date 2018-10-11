@@ -11,9 +11,9 @@ param(
 [parameter(Mandatory=$true,HelpMessage="The report to download.")]
 [validateset('getEmailActivityUserDetail','getEmailActivityCounts','getEmailActivityUserCounts','getEmailAppUsageUserDetail','getEmailAppUsageAppsUserCounts','getEmailAppUsageUserCounts','getEmailAppUsageVersionsUserCounts','getMailboxUsageDetail','getMailboxUsageMailboxCounts','getMailboxUsageQuotaStatusMailboxCounts','getMailboxUsageStorage','getOffice365ActivationsUserDetail','getOffice365ActivationCounts','getOffice365ActivationsUserCounts','getOffice365ActiveUserDetail','getOffice365ActiveUserCounts','getOffice365ServicesUserCounts','getOffice365GroupsActivityDetail','getOffice365GroupsActivityCounts','getOffice365GroupsActivityGroupCounts','getOffice365GroupsActivityStorage','getOffice365GroupsActivityFileCounts','getOneDriveActivityUserDetail','getOneDriveActivityUserCounts','getOneDriveActivityFileCounts','getOneDriveUsageAccountDetail','getOneDriveUsageAccountCounts','getOneDriveUsageFileCounts','getOneDriveUsageStorage','getSharePointActivityUserDetail','getSharePointActivityFileCounts','getSharePointActivityUserCounts','getSharePointActivityPages','getSharePointSiteUsageDetail','getSharePointSiteUsageFileCounts','getSharePointSiteUsageSiteCounts','getSharePointSiteUsageStorage','getSharePointSiteUsagePages','getSkypeForBusinessActivityUserDetail','getSkypeForBusinessActivityCounts','getSkypeForBusinessActivityUserCounts','getSkypeForBusinessDeviceUsageUserDetail','getSkypeForBusinessDeviceUsageDistributionUserCounts','getSkypeForBusinessDeviceUsageUserCounts','getSkypeForBusinessOrganizerActivityCounts','getSkypeForBusinessOrganizerActivityUserCounts','getSkypeForBusinessOrganizerActivityMinuteCounts','getSkypeForBusinessParticipantActivityCounts','getSkypeForBusinessParticipantActivityUserCounts','getSkypeForBusinessParticipantActivityMinuteCounts','getSkypeForBusinessPeerToPeerActivityCounts','getSkypeForBusinessPeerToPeerActivityUserCounts','getSkypeForBusinessPeerToPeerActivityMinuteCounts','getYammerActivityUserDetail','getYammerActivityCounts','getYammerActivityUserCounts','getYammerDeviceUsageUserDetail','getYammerDeviceUsageDistributionUserCounts','getYammerDeviceUsageUserCounts','getYammerGroupsActivityDetail','getYammerGroupsActivityGroupCounts','getYammerGroupsActivityCounts')]
 [string]$ReportName,
-[parameter(Mandatory=$true,HelpMessage="Report period to download.")]
+[parameter(Mandatory=$false,HelpMessage="Report period to download. Default is 30 Days.")]
 [validateset('7 Days','30 Days','90 Days','180 Days')]
-[string]$ReportPeriod,
+[string]$ReportPeriod="30 Days",
 [parameter(Mandatory=$false,HelpMessage="The format of the output file. Excel or CSV. Excel requires Import-Excel module. Default is CSV.")]
 [validateset('CSV','XLSX')]
 [string]$Format,
@@ -65,8 +65,15 @@ param(
     }
     $Period = $Periods.$ReportPeriod
 
+    #Some Reports don't have Period, so here's an exeception.
+    IF($ReportName -like "getOffice365Activation*")
+    {
+    $URI = "$resourceAppIdURI/v1.0/Reports/$ReportName"
+    }
+    ELSE
+    {
     $URI = "$resourceAppIdURI/v1.0/Reports/$ReportName(Period='$Period')"
-
+    }
 #Get the Report.
     
     #While the report is in CSV format, the manner in which PowerShell downloads the report results in the CSV data being placed in a single object string.
@@ -103,6 +110,9 @@ param(
         $LineCount = $LineCount + 1
     }
 
+#Remove the Report Refresh Date Column as it doesn't add anything to the output.
+$ReportDT.Columns.Remove('ï»¿Report Refresh Date')
+
 #Output the Report to the format and file path selected.
 
     $CurrentPath=Split-Path $script:MyInvocation.MyCommand.Path
@@ -131,5 +141,5 @@ param(
     }
     ELSE
     {
-        $ReportDT | Export-Excel -Path $OutFilePath -WorksheetName $ReportName -BoldTopRow -AutoSize -FreezeTopRow
+        $ReportDT | Export-Excel -Path $OutFilePath -WorksheetName $ReportName -BoldTopRow -AutoSize -FreezeTopRow -ExcludeProperty RowError,RowState,Table,ItemArray,HasErrors
     }
