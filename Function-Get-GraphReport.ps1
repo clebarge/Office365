@@ -1,68 +1,16 @@
-﻿<#
-Get-GraphReport
+﻿
 
-This script retrieves a specified Graph report for Microsoft Office 365.
-
-To run this script you must first setup the LongView-ReportingApp App Registration in your tenant.
-
-Author: Clark B. Lebarge
-Company: Long View Systems
-Version: 1.0.beta.10152018
-
-#>
-
+Function Get-GraphReport
+{
 param(
 [parameter(Mandatory=$true,HelpMessage="The report to download.")]
 [validateset('getEmailActivityUserDetail','getEmailActivityCounts','getEmailActivityUserCounts','getEmailAppUsageUserDetail','getEmailAppUsageAppsUserCounts','getEmailAppUsageUserCounts','getEmailAppUsageVersionsUserCounts','getMailboxUsageDetail','getMailboxUsageMailboxCounts','getMailboxUsageQuotaStatusMailboxCounts','getMailboxUsageStorage','getOffice365ActivationsUserDetail','getOffice365ActivationCounts','getOffice365ActivationsUserCounts','getOffice365ActiveUserDetail','getOffice365ActiveUserCounts','getOffice365ServicesUserCounts','getOffice365GroupsActivityDetail','getOffice365GroupsActivityCounts','getOffice365GroupsActivityGroupCounts','getOffice365GroupsActivityStorage','getOffice365GroupsActivityFileCounts','getOneDriveActivityUserDetail','getOneDriveActivityUserCounts','getOneDriveActivityFileCounts','getOneDriveUsageAccountDetail','getOneDriveUsageAccountCounts','getOneDriveUsageFileCounts','getOneDriveUsageStorage','getSharePointActivityUserDetail','getSharePointActivityFileCounts','getSharePointActivityUserCounts','getSharePointActivityPages','getSharePointSiteUsageDetail','getSharePointSiteUsageFileCounts','getSharePointSiteUsageSiteCounts','getSharePointSiteUsageStorage','getSharePointSiteUsagePages','getSkypeForBusinessActivityUserDetail','getSkypeForBusinessActivityCounts','getSkypeForBusinessActivityUserCounts','getSkypeForBusinessDeviceUsageUserDetail','getSkypeForBusinessDeviceUsageDistributionUserCounts','getSkypeForBusinessDeviceUsageUserCounts','getSkypeForBusinessOrganizerActivityCounts','getSkypeForBusinessOrganizerActivityUserCounts','getSkypeForBusinessOrganizerActivityMinuteCounts','getSkypeForBusinessParticipantActivityCounts','getSkypeForBusinessParticipantActivityUserCounts','getSkypeForBusinessParticipantActivityMinuteCounts','getSkypeForBusinessPeerToPeerActivityCounts','getSkypeForBusinessPeerToPeerActivityUserCounts','getSkypeForBusinessPeerToPeerActivityMinuteCounts','getYammerActivityUserDetail','getYammerActivityCounts','getYammerActivityUserCounts','getYammerDeviceUsageUserDetail','getYammerDeviceUsageDistributionUserCounts','getYammerDeviceUsageUserCounts','getYammerGroupsActivityDetail','getYammerGroupsActivityGroupCounts','getYammerGroupsActivityCounts')]
 [string]$ReportName,
 [parameter(Mandatory=$false,HelpMessage="Report period to download. Default is 30 Days.")]
 [validateset('7 Days','30 Days','90 Days','180 Days')]
-[string]$ReportPeriod="30 Days",
-[parameter(Mandatory=$false,HelpMessage="The format of the output file. Excel or CSV. Excel requires Import-Excel module. Default is CSV.")]
-[validateset('CSV','XLSX')]
-[string]$Format,
-[parameter(Mandatory=$false,HelpMessage="Specify an alternate folder for the output file. Default is current folder.")]
-[string]$Path
+[string]$ReportPeriod="30 Days"
+
 )
-
-#Begin Functions
-Function Connect-WebApp
-{
-#This function connects to an already configured WebApp using stored certificate. The certificate name is intended to match the Tenant ID.
-param(
-[parameter()]$TenantID,
-[parameter()]$AppId,
-[parameter()]$resourceAppIdURI
-)
-    $clientCertificate = Get-ChildItem -Path Cert:CurrentUser\My | where {$_.Subject -match $TenantId}
-    $certThumbprint = $clientCertificate.Thumbprint
-    $AADApp = Connect-AzureAD -CertificateThumbprint $certThumbprint -TenantId $TenantID -ApplicationId $AppId
-    $TenantName = $AADApp.TenantDomain
-    $CredPrompt         = "Auto"
-    $authority          = "https://login.microsoftonline.com/$TenantName"
-    $authContext        = New-Object "Microsoft.IdentityModel.Clients.ActiveDirectory.AuthenticationContext" -ArgumentList $authority
-    $platformParameters = New-Object "Microsoft.IdentityModel.Clients.ActiveDirectory.PlatformParameters"    -ArgumentList $CredPrompt
-    $certificateCredential = New-Object -TypeName Microsoft.IdentityModel.Clients.ActiveDirectory.ClientAssertionCertificate -ArgumentList ($AppId, $clientCertificate)
-    $AccessToken        = $authContext.AcquireTokenAsync($resourceAppIdURI,$certificateCredential).Result
-    $WebAppHeader = @{
-        'Authorization' = $AccessToken.CreateAuthorizationHeader()
-        }
-return $WebAppHeader
-}
-
-#Login to Azure AD
-    $AzureAD = Connect-AzureAD
-
-#The connection requires the Application's ID and Redirect URI.
-    $AppInfo = Get-AzureADApplication -SearchString "LongView-ReportingApp"
-    $AppId = $AppInfo.AppId
-    $RedirectUri = $AppInfo.ReplyUrls.Item(0)
-    $TenantName = $AzureAD.TenantDomain
-    $TenantID = $AzureAD.TenantId
-
-#Now lets connect to Graph with our function.
-    $resourceAppIdURI   = "https://graph.microsoft.com"
-    $WebAppHeader = Connect-WebApp -TenantID $TenantID -AppId $AppId -resourceAppIdURI $resourceAppIdURI
 
 #Build the URI for the Report.
     $Periods = $null
@@ -88,7 +36,7 @@ return $WebAppHeader
     #While the report is in CSV format, the manner in which PowerShell downloads the report results in the CSV data being placed in a single object string.
     #Need to split it up to make it usable within PowerShell.
     #Split each separate line, removing empty lines if they occur. 
-    $report = (Invoke-RestMethod -Headers $WebAppHeader -Uri $Uri -UseBasicParsing -Method "GET").Split([Environment]::NewLine,[System.StringSplitOptions]::RemoveEmptyEntries)
+    $report = (Invoke-RestMethod -Headers $GraphHeader -Uri $Uri -UseBasicParsing -Method "GET").Split([Environment]::NewLine,[System.StringSplitOptions]::RemoveEmptyEntries)
     
     #Create the datatable required to store the converted objects.
     $Header = ($Report.GetValue(0).Split(','))
@@ -122,34 +70,5 @@ return $WebAppHeader
 #Remove the Report Refresh Date Column as it doesn't add anything to the output.
 $ReportDT.Columns.Remove('ï»¿Report Refresh Date')
 
-#Output the Report to the format and file path selected.
-
-    $CurrentPath=Split-Path $script:MyInvocation.MyCommand.Path
-    #Date
-    $Datefield = Get-Date -Format {MMddyyyy}
-
-    IF(!$Format){$Format="CSV"}
-    IF(!$Path){$Path=$CurrentPath}
-            $Incr = $null
-            $testpath = $null
-            DO{
-
-            $OutFilePath = "$Path\$TenantName-$ReportName-for last -$ReportPeriod-$Incr.$Format"
-   
-            $Incr = $Incr + 1
-            $testpath = Test-Path $OutFilePath
-
-            }
-            UNTIL($testpath -eq $false)
-
-    #Exporting
-    
-    IF($Format -eq "CSV")
-    {
-        $ReportDT | Export-Csv -Path $OutFilePath -NoTypeInformation
-        notepad $OutFilePath
-    }
-    ELSE
-    {
-        $ReportDT | Export-Excel -Path $OutFilePath -WorksheetName $ReportName -BoldTopRow -AutoSize -FreezeTopRow -AutoFilter -Show -ExcludeProperty RowError,RowState,Table,ItemArray,HasErrors
-    }
+return $ReportDT
+}
