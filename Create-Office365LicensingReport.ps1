@@ -15,6 +15,7 @@ This script has the following requirements:
         * Note: Currently the Azure AD 2.0 module, which is intended to replace MSOnline does not seem to support cloud service providers. Which is why the older commands are used.
     - Import-Excel
         *Install Module ImportExcel
+    - For report Details this script also requires the Azure AD 2.0 module, and a reporting app setup in the customer tenany.
 
 
 
@@ -26,7 +27,7 @@ Create-Office365LicensingReport.ps1
     [-Path] <string>
 
 
-    Version: 1.0.beta.10122018
+    Version: 1.0.beta.10152018
     Author: Clark B. Lebarge
     Company: Long View Systems
 
