@@ -13,7 +13,7 @@ Version: 1.0.beta.10152018
 
 param(
 [parameter(Mandatory=$true,HelpMessage="The report to download.")]
-[validateset('getEmailActivityUserDetail','getEmailActivityCounts','getEmailActivityUserCounts','getEmailAppUsageUserDetail','getEmailAppUsageAppsUserCounts','getEmailAppUsageUserCounts','getEmailAppUsageVersionsUserCounts','getMailboxUsageDetail','getMailboxUsageMailboxCounts','getMailboxUsageQuotaStatusMailboxCounts','getMailboxUsageStorage','getOffice365ActivationsUserDetail','getOffice365ActivationCounts','getOffice365ActivationsUserCounts','getOffice365ActiveUserDetail','getOffice365ActiveUserCounts','getOffice365ServicesUserCounts','getOffice365GroupsActivityDetail','getOffice365GroupsActivityCounts','getOffice365GroupsActivityGroupCounts','getOffice365GroupsActivityStorage','getOffice365GroupsActivityFileCounts','getOneDriveActivityUserDetail','getOneDriveActivityUserCounts','getOneDriveActivityFileCounts','getOneDriveUsageAccountDetail','getOneDriveUsageAccountCounts','getOneDriveUsageFileCounts','getOneDriveUsageStorage','getSharePointActivityUserDetail','getSharePointActivityFileCounts','getSharePointActivityUserCounts','getSharePointActivityPages','getSharePointSiteUsageDetail','getSharePointSiteUsageFileCounts','getSharePointSiteUsageSiteCounts','getSharePointSiteUsageStorage','getSharePointSiteUsagePages','getSkypeForBusinessActivityUserDetail','getSkypeForBusinessActivityCounts','getSkypeForBusinessActivityUserCounts','getSkypeForBusinessDeviceUsageUserDetail','getSkypeForBusinessDeviceUsageDistributionUserCounts','getSkypeForBusinessDeviceUsageUserCounts','getSkypeForBusinessOrganizerActivityCounts','getSkypeForBusinessOrganizerActivityUserCounts','getSkypeForBusinessOrganizerActivityMinuteCounts','getSkypeForBusinessParticipantActivityCounts','getSkypeForBusinessParticipantActivityUserCounts','getSkypeForBusinessParticipantActivityMinuteCounts','getSkypeForBusinessPeerToPeerActivityCounts','getSkypeForBusinessPeerToPeerActivityUserCounts','getSkypeForBusinessPeerToPeerActivityMinuteCounts','getYammerActivityUserDetail','getYammerActivityCounts','getYammerActivityUserCounts','getYammerDeviceUsageUserDetail','getYammerDeviceUsageDistributionUserCounts','getYammerDeviceUsageUserCounts','getYammerGroupsActivityDetail','getYammerGroupsActivityGroupCounts','getYammerGroupsActivityCounts')]
+[validateset('getEmailActivityUserDetail','getEmailActivityCounts','getEmailActivityUserCounts','getEmailAppUsageUserDetail','getEmailAppUsageAppsUserCounts','getEmailAppUsageUserCounts','getEmailAppUsageVersionsUserCounts','getMailboxUsageDetail','getMailboxUsageMailboxCounts','getMailboxUsageQuotaStatusMailboxCounts','getMailboxUsageStorage','getOffice365ActivationsUserDetail','getOffice365ActivationCounts','getOffice365ActivationsUserCounts','getOffice365ActiveUserDetail','getOffice365ActiveUserCounts','getOffice365ServicesUserCounts','getOffice365GroupsActivityDetail','getOffice365GroupsActivityCounts','getOffice365GroupsActivityGroupCounts','getOffice365GroupsActivityStorage','getOffice365GroupsActivityFileCounts','getOneDriveActivityUserDetail','getOneDriveActivityUserCounts','getOneDriveActivityFileCounts','getOneDriveUsageAccountDetail','getOneDriveUsageAccountCounts','getOneDriveUsageFileCounts','getOneDriveUsageStorage','getSharePointActivityUserDetail','getSharePointActivityFileCounts','getSharePointActivityUserCounts','getSharePointActivityPages','getSharePointSiteUsageDetail','getSharePointSiteUsageFileCounts','getSharePointSiteUsageSiteCounts','getSharePointSiteUsageStorage','getSharePointSiteUsagePages','getSkypeForBusinessActivityUserDetail','getSkypeForBusinessActivityCounts','getSkypeForBusinessActivityUserCounts','getSkypeForBusinessDeviceUsageUserDetail','getSkypeForBusinessDeviceUsageDistributionUserCounts','getSkypeForBusinessDeviceUsageUserCounts','getSkypeForBusinessOrganizerActivityCounts','getSkypeForBusinessOrganizerActivityUserCounts','getSkypeForBusinessOrganizerActivityMinuteCounts','getSkypeForBusinessParticipantActivityCounts','getSkypeForBusinessParticipantActivityUserCounts','getSkypeForBusinessParticipantActivityMinuteCounts','getSkypeForBusinessPeerToPeerActivityCounts','getSkypeForBusinessPeerToPeerActivityUserCounts','getSkypeForBusinessPeerToPeerActivityMinuteCounts','getYammerActivityUserDetail','getYammerActivityCounts','getYammerActivityUserCounts','getYammerDeviceUsageUserDetail','getYammerDeviceUsageDistributionUserCounts','getYammerDeviceUsageUserCounts','getYammerGroupsActivityDetail','getYammerGroupsActivityGroupCounts','getYammerGroupsActivityCounts','getTeamsDeviceUsageUserDetail','getTeamsDeviceUsageUserCounts','getTeamsDeviceUsageDistributionUserCounts','getTeamsUserActivityUserDetail','getTeamsUserActivityCounts','getTeamsUserActivityUserCounts')]
 [string]$ReportName,
 [parameter(Mandatory=$false,HelpMessage="Report period to download. Default is 30 Days.")]
 [validateset('7 Days','30 Days','90 Days','180 Days')]
@@ -50,11 +50,23 @@ param(
 return $WebAppHeader
 }
 
-#Login to Azure AD
-    $AzureAD = Connect-AzureAD
+try{
+
+#If we're already logged on, this should work.
+$AppInfo = Get-AzureADApplication -SearchString "LongView-ReportingApp"
+}
+catch{
+
+
+#Login to Azure AD, then get the app.
+    #storing this as a global, so it can be found by repeated runs of the app.
+    $global:AzureAD = Connect-AzureAD
+    $AppInfo = Get-AzureADApplication -SearchString "LongView-ReportingApp"
+}
+
 
 #The connection requires the Application's ID and Redirect URI.
-    $AppInfo = Get-AzureADApplication -SearchString "LongView-ReportingApp"
+    
     $AppId = $AppInfo.AppId
     $RedirectUri = $AppInfo.ReplyUrls.Item(0)
     $TenantName = $AzureAD.TenantDomain
